@@ -102,8 +102,8 @@ if the total contract code is still relatively small.
 ### Static vs Dynamic Linking
 
 With the introduction of modules, scripts will no longer be
-self-contained--they will depend on imported modules. Likewise,
-modules stored on the blockchain will also depend on imported
+self-contained--they may depend on imported modules. Likewise,
+modules stored on the blockchain may also depend on imported
 modules. An important question is when the identity of those modules
 is decided. The actual modules used will need to be supplied in the
 transaction running the script--including all the dependencies--but
@@ -129,7 +129,7 @@ be handled by contracts instead.
 
 Fixing the versions of script dependencies also greatly simplifies
 testing the script concerned, or proving it correct. Allowing
-different version of dependencies to be provided when the script is
+different versions of dependencies to be provided when the script is
 run would oblige us to clarify what assumptions the script may make
 about the imported code, and how those assumptions are to be
 guaranteed when implementations of the dependencies are provided.
@@ -150,8 +150,137 @@ We refer to this mechanism as "lazy loading". This CIP shows how to
 implement it, but also includes a slightly different design that does
 not (and achieves some small savings elsewhere as a result).
 
+### Cross-language calls
+
+This CIP does not restrict module interfaces in any way; a module is
+just a script computing a value. Some compilers might implement
+modules as tuples of exported functions; others might implement them
+as functions from function name hashes to functions (this would
+resemble the Ethereum mechanism). This CIP provides a low-level way
+for modules compiled with different compilers to refer to one another,
+but does not otherwise support interlanguage working. It is the job of
+compiler writers to provide a foreign function interface, or library
+authors to implement their libraries in such a way that they are
+usable from other languages.
+
 ## Specification
+
+Currently, the definition of “script” used by the ledger is (approximately):
+```
+newtype Script = Script ShortByteString
+```
+We change this to:
+```
+newtype CompleteScript = CompleteScript ShortByteString
+
+newtype Arg = ScriptArg ScriptHash
+
+data Script = 
+  ScriptWithArgs { head :: CompleteScript, args :: [Arg] }
+
+-- hash of a Script, not a CompleteScript
+type ScriptHash = ByteString
+```
+The arguments of a script are the imported modules; we need to resolve
+them before being able to use them:
+```
+resolveScriptDependencies 
+  :: Map ScriptHash Script
+  -> Script 
+  -> Maybe CompleteScript
+resolveScriptDependencies preimages = go 
+  where 
+    go (ScriptWithArgs head args) = do
+      argScripts <- traverse lookupArg args
+      pure $ applyScript head argScripts
+      where
+        lookupArg :: Arg -> Maybe CompleteScript 
+        lookupArg (ScriptArg hash) = do
+          script <- lookup hash preimages
+          go script
+```
+The `preimages` map is the usual witness map constructed by the ledger,
+so in order for a script hash argument to be resolved, the transaction
+must provide the pre-image in the usual way.
+
+The only scripts that can be run are complete scripts, so the type of
+runScript changes to take a CompleteScript instead of a Script.
+
+### Variation 1
+
+With this design, all module dependencies must be provided for
+`resolveScriptDependencies` to succeed. To permit some modules to be
+omitted, just replace `traverse` by `map` and change the types
+accordingly:
+```
+resolveScriptDependencies 
+  :: Map ScriptHash Script
+  -> Script 
+  -> CompleteScript
+resolveScriptDependencies preimages = go 
+  where 
+    go (ScriptWithArgs head args) =
+      applyScript head (map lookupArg args)
+      where
+        lookupArg :: Arg -> Maybe CompleteScript 
+        lookupArg (ScriptArg hash) = do
+          script <- lookup hash preimages
+          pure $ go script
+```
+Here `applyScript` is used with the type `CompleteScript -> [Maybe
+CompleteScript] -> CompleteScript`; the `Maybe` values should be
+encoded using sums-of-products as `constr 0` (for `Nothing`) and
+`constr 1 s` for `Just s`. This allows the script to detect missing
+modules; the expectation is that scripts will just extract each module
+they use from the `Just` value at the point of use, and that this will
+fail if the value is `Nothing`.
+
+The cost of this design is an extra step each time a module is used;
+the benefit is that fewer modules need be supplied in a transaction,
+if some of the imported modules are not needed.
+
+### Variation 2
+
+In this second variation, modules are classified as either
+*always-used*, or *sometimes-used*. We replace the `Arg` type by
+```
+data Arg = AlwaysUsed ScriptHash | SometimesUsed ScriptHash
+```
+and update `resolveScriptDependencies` as follows:
+```
+resolveScriptDependencies 
+  :: Map ScriptHash Script
+  -> Script 
+  -> Maybe CompleteScript
+resolveScriptDependencies preimages = go 
+  where 
+    go (ScriptWithArgs head args) = do
+      argScripts <- traverse lookupArg args
+      pure $ applyScript head argScripts
+      where
+        lookupArg :: Arg -> Maybe CompleteScript 
+        lookupArg (AlwaysUsed hash) = do
+          script <- lookup hash preimages
+          go script
+	lookupArg (SometimesUsed hash) =
+	  case lookup hash preimages of
+	    Nothing -> pure $ ...representation of constr 0...
+	    Just s -> do s' <- go s
+	                 ... representation of constr 1 s' ...
+```
+Always-used arguments must be supplied in the transaction, and are
+passed directly to the script, while sometimes-used ones may be
+omitted, and are passed to the script wrapped in a `Maybe` value to
+indicate whether they were present or not.
+
+The cost of this variation is a slightly bulkier representation of
+scripts stored on the chain; the benefit is that use of 'always
+needed' modules is as cheap as in the first variation.
+
 ## Rationale: how does this CIP achieve its goals?
+
+Note that mutually recursive modules are not possible.
+
 ## Path to Active
 ### Acceptance criteria
 TODO: The criteria whereby the proposal becomes 'Active'.
