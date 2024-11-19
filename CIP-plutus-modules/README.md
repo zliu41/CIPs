@@ -72,14 +72,15 @@ sternly
 It seems there *is* only one trusted registry, and it is the one
 supplied as an example by the developers of `ethpm`. In other words,
 while there is a package manager for Ethereum, it does not appear to
-be used.
+be in use.
 
-This is not to say that code is not shared. On the contrary, there is an
-open source repo on `github` called `OpenZeppelin` which appears to be heavily
-used. It provides 264 Solidity files, in which 43 libraries are
-declared (almost all internal). It seems, thus, that libraries are not
-the main way of reusing code in Solidity; rather it is by calling, or
-inheriting from, another contract, that code reuse primarily occurs.
+This is not to say that code is never shared. On the contrary, there
+is an open source repo on `github` called `OpenZeppelin` which appears
+to be heavily used. It provides 264 Solidity files, in which 43
+libraries are declared (almost all internal). It seems, thus, that
+libraries are not the main way of reusing code in Solidity; rather it
+is by calling, or inheriting from, another contract, that code reuse
+primarily occurs.
 
 A small study of 20 'verified' contracts running on the Ethereum chain
 (verified in the sense that their source code was provided) showed that
@@ -97,8 +98,98 @@ Eigenlayer protocol for re-staking.
 Thus code sharing is clearly going on, and a (small) majority of
 transactions exploit multiple modules. We may conclude that there is a
 significant demand for modules in the context of smart contracts, even
-if the total contract code is still relatively small.
+if the total contract code still remains relatively small.
 
+
+## Specification
+
+This CIP provides the simplest possible way to split scripts across
+multiple UTxOs; essentially, it allows any closed subterm to be
+replaced by its hash, whereupon the term can be supplied either as a
+witness in the invoking transaction, or via a reference script in that
+transaction. To avoid any change to the syntax of UPLC, hashes are
+allowed only at the top-level (so to replace a deeply nested subterm
+by its hash, we need to first lambda-abstract it). Thus we need only
+change the definition of a `Script`; instead of simply some code, it
+becomes the application of code to zero or more arguments, given by
+hashes.
+
+Currently, the definition of “script” used by the ledger is (approximately):
+```
+newtype Script = Script ShortByteString
+```
+We change this to:
+```
+newtype CompleteScript = CompleteScript ShortByteString
+
+newtype Arg = ScriptArg ScriptHash
+
+data Script = 
+  ScriptWithArgs { head :: CompleteScript, args :: [Arg] }
+
+-- hash of a Script, not a CompleteScript
+type ScriptHash = ByteString
+```
+We need to resolve the arguments of a script before running it:
+```
+resolveScriptDependencies 
+  :: Map ScriptHash Script
+  -> Script 
+  -> Maybe CompleteScript
+resolveScriptDependencies preimages = go 
+  where 
+    go (ScriptWithArgs head args) = do
+      argScripts <- traverse lookupArg args
+      pure $ applyScript head argScripts
+      where
+        lookupArg :: Arg -> Maybe CompleteScript 
+        lookupArg (ScriptArg hash) = do
+          script <- lookup hash preimages
+          go script
+```
+The `preimages` map is the usual witness map constructed by the ledger,
+so in order for a script hash argument to be resolved, the transaction
+must provide the pre-image in the usual way. Note that arguments are
+mapped to a `Script`, not a `CompleteScript`, so the result of looking
+up a hash may contain further dependencies, which need to be resolved
+recursively. A transaction must provide witnesses for *all* the
+recursive dependencies of the scripts it invokes.
+
+The only scripts that can be run are complete scripts, so the type of
+`runScript` changes to take a `CompleteScript` instead of a `Script`.
+
+### Variation
+
+With this design, if any script hash is missing from the `preimages`,
+then the entire resolution fails. As an alternative, we might replace
+missing subterms by a dummy value, such as `builtin unit`, thus:
+```
+resolveScriptDependencies 
+  :: Map ScriptHash Script
+  -> Script 
+  -> CompleteScript
+resolveScriptDependencies preimages = go 
+  where 
+    go (ScriptWithArgs head args) =
+      applyScript head (map lookupArg args)
+      where
+        lookupArg :: Arg -> CompleteScript 
+        lookupArg (ScriptArg hash) = do
+          case lookup hash preimages of
+	    Nothing     -> builtin unit
+	    Just script -> go script
+```
+This would allow transactions to provide witnesses only for script
+arguments which are actually *used* in the calls that the transaction
+makes. This may sometimes lead to a significant reduction in the
+amount of code that must be loaded; for example, imagine a spending
+verifier which offers a choice of two encryption methods, provided as
+separate script arguments. In any call of the verifier, only one
+encryption method will be required, allowing the other (and all its
+dependencies) to be omitted from the spending transaction.
+
+
+## Rationale: how does this CIP achieve its goals?
 ### Static vs Dynamic Linking
 
 With the introduction of modules, scripts will no longer be
@@ -163,121 +254,7 @@ compiler writers to provide a foreign function interface, or library
 authors to implement their libraries in such a way that they are
 usable from other languages.
 
-## Specification
-
-Currently, the definition of “script” used by the ledger is (approximately):
-```
-newtype Script = Script ShortByteString
-```
-We change this to:
-```
-newtype CompleteScript = CompleteScript ShortByteString
-
-newtype Arg = ScriptArg ScriptHash
-
-data Script = 
-  ScriptWithArgs { head :: CompleteScript, args :: [Arg] }
-
--- hash of a Script, not a CompleteScript
-type ScriptHash = ByteString
-```
-The arguments of a script are the imported modules; we need to resolve
-them before being able to use them:
-```
-resolveScriptDependencies 
-  :: Map ScriptHash Script
-  -> Script 
-  -> Maybe CompleteScript
-resolveScriptDependencies preimages = go 
-  where 
-    go (ScriptWithArgs head args) = do
-      argScripts <- traverse lookupArg args
-      pure $ applyScript head argScripts
-      where
-        lookupArg :: Arg -> Maybe CompleteScript 
-        lookupArg (ScriptArg hash) = do
-          script <- lookup hash preimages
-          go script
-```
-The `preimages` map is the usual witness map constructed by the ledger,
-so in order for a script hash argument to be resolved, the transaction
-must provide the pre-image in the usual way.
-
-The only scripts that can be run are complete scripts, so the type of
-runScript changes to take a CompleteScript instead of a Script.
-
-### Variation 1
-
-With this design, all module dependencies must be provided for
-`resolveScriptDependencies` to succeed. To permit some modules to be
-omitted, just replace `traverse` by `map` and change the types
-accordingly:
-```
-resolveScriptDependencies 
-  :: Map ScriptHash Script
-  -> Script 
-  -> CompleteScript
-resolveScriptDependencies preimages = go 
-  where 
-    go (ScriptWithArgs head args) =
-      applyScript head (map lookupArg args)
-      where
-        lookupArg :: Arg -> Maybe CompleteScript 
-        lookupArg (ScriptArg hash) = do
-          script <- lookup hash preimages
-          pure $ go script
-```
-Here `applyScript` is used with the type `CompleteScript -> [Maybe
-CompleteScript] -> CompleteScript`; the `Maybe` values should be
-encoded using sums-of-products as `constr 0` (for `Nothing`) and
-`constr 1 s` for `Just s`. This allows the script to detect missing
-modules; the expectation is that scripts will just extract each module
-they use from the `Just` value at the point of use, and that this will
-fail if the value is `Nothing`.
-
-The cost of this design is an extra step each time a module is used;
-the benefit is that fewer modules need be supplied in a transaction,
-if some of the imported modules are not needed.
-
-### Variation 2
-
-In this second variation, modules are classified as either
-*always-used*, or *sometimes-used*. We replace the `Arg` type by
-```
-data Arg = AlwaysUsed ScriptHash | SometimesUsed ScriptHash
-```
-and update `resolveScriptDependencies` as follows:
-```
-resolveScriptDependencies 
-  :: Map ScriptHash Script
-  -> Script 
-  -> Maybe CompleteScript
-resolveScriptDependencies preimages = go 
-  where 
-    go (ScriptWithArgs head args) = do
-      argScripts <- traverse lookupArg args
-      pure $ applyScript head argScripts
-      where
-        lookupArg :: Arg -> Maybe CompleteScript 
-        lookupArg (AlwaysUsed hash) = do
-          script <- lookup hash preimages
-          go script
-	lookupArg (SometimesUsed hash) =
-	  case lookup hash preimages of
-	    Nothing -> pure $ ...representation of constr 0...
-	    Just s -> do s' <- go s
-	                 ... representation of constr 1 s' ...
-```
-Always-used arguments must be supplied in the transaction, and are
-passed directly to the script, while sometimes-used ones may be
-omitted, and are passed to the script wrapped in a `Maybe` value to
-indicate whether they were present or not.
-
-The cost of this variation is a slightly bulkier representation of
-scripts stored on the chain; the benefit is that use of 'always
-needed' modules is as cheap as in the first variation.
-
-## Rationale: how does this CIP achieve its goals?
+### Notes
 
 Note that mutually recursive modules are not possible.
 
