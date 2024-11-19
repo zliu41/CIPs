@@ -190,73 +190,151 @@ dependencies) to be omitted from the spending transaction.
 
 
 ## Rationale: how does this CIP achieve its goals?
-### Static vs Dynamic Linking
 
-With the introduction of modules, scripts will no longer be
-self-contained--they may depend on imported modules. Likewise,
-modules stored on the blockchain may also depend on imported
-modules. An important question is when the identity of those modules
-is decided. The actual modules used will need to be supplied in the
-transaction running the script--including all the dependencies--but
-should the transaction be able to choose modules freely, or should the
-choice be constrained using a hash? Another way to phrase this
-question is: should the hash of a script depend on the hashes of its
-dependencies, or not?
+This CIP provides a minimal mechanism to split scripts across several
+transactions. 'Imported' modules are provided in the calling
+transaction and passed as arguments to the top-level script, and their
+identity is checked using their hash. The representation of modules is
+left entirely up to compiler-writers to choose--a module may be any
+value at all. For example, one compiler might choose to represent
+modules as a tuple of functions, while another might map function
+names to tags, as Solidity does, and represent a module as a function
+from tags to functions. Each language will need to define its own
+conventions for module representations, and implement them on top of
+this low-level mechanism. For example, a typed language might
+represent a module as a tuple of exported values, and store the names
+and types of the values in an (off-chain) interface file. Clients
+could use the interface file to refer to exported values by name, and
+to perform type-checking across module boundaries.
 
-The argument for allowing the calling transaction to supply modules
-freely is that it could, for example, supply later versions of some of
-the modules used, perhaps fixing bugs. The argument against is that it
-weakens security: should a transaction spending a UTxO protected by a
-script be able to replace freely some of the code in the verifier? We
-think the answer is obviously 'no'!  Allowing it would open for a
-variety of clever attacks; allowing *some* module replacements, but
-not others, would require mechanisms for validating "correct
-upgrades". Such mechanisms ought to be provided via contracts, not
-built into the chain. Thus we prefer "static linking", in the sense
-that a deployed script (or module) contains the hashes of its
-dependencies, and can only be invoked if *the same versions* of those
-dependencies are supplied in the transaction; dependency upgrades must
-be handled by contracts instead.
+### Recursive modules
 
-Fixing the versions of script dependencies also greatly simplifies
-testing the script concerned, or proving it correct. Allowing
-different versions of dependencies to be provided when the script is
-run would oblige us to clarify what assumptions the script may make
-about the imported code, and how those assumptions are to be
-guaranteed when implementations of the dependencies are provided.
-
-A related question is whether *all* modules that a script depends on
-must be supplied by a calling transaction, or only those that are
-actually used in that particular script execution. Allowing the latter
-could in some cases dramatically reduce the amount of code that must
-be loaded to run a script. For example, we can imagine a verifier that
-accepts two different encryption methods, provided by different
-modules. In any one attempt to spend the UTxO concerned only one
-encryption method would be used, allowing the code from the other to
-be omitted. This kind of thing seems to occur occasionally, although
-there is no clear evidence that supporting it would enable big savings
-in practice.
-
-We refer to this mechanism as "lazy loading". This CIP shows how to
-implement it, but also includes a slightly different design that does
-not (and achieves some small savings elsewhere as a result).
+This design does not support mutually recursive modules. Module
+recursion is sometimes used in languages such as Haskell, but it is a
+rarely-used feature that will not be much missed.
 
 ### Cross-language calls
 
-This CIP does not restrict module interfaces in any way; a module is
-just a script computing a value. Some compilers might implement
-modules as tuples of exported functions; others might implement them
-as functions from function name hashes to functions (this would
-resemble the Ethereum mechanism). This CIP provides a low-level way
-for modules compiled with different compilers to refer to one another,
-but does not otherwise support interlanguage working. It is the job of
-compiler writers to provide a foreign function interface, or library
-authors to implement their libraries in such a way that they are
-usable from other languages.
+There is no a priori reason why script arguments need be written in
+the same high-level language as the script itself; thus this CIP
+supports cross-language calls. However, since different languages may
+adopt different conventions for how modules are represented, then some
+'glue code' is likely to be needed for modules in different languages
+to work together. In the longer term, it might be worthwhile defining
+an IDL (Interface Definition Language) for UPLC, to generate this glue
+code, and enable scripts to call code in other languages more
+seamlessly. This is beyond the scope of this CIP; however this basic
+mechanism will not constrain the design of such an IDL in the future.
 
-### Notes
+### Static vs Dynamic Linking
 
-Note that mutually recursive modules are not possible.
+With the introduction of modules, scripts are no longer
+self-contained--they may depend on imported modules. This applies both
+to scripts for direct use, such as spending verifiers, and to scripts
+representing modules stored on the chain.  A module may depend on
+imported modules, and so on transitively. An important question is
+when the identity of those modules is decided. In particular, if a
+module is replaced by a new version, perhaps fixing a bug, can
+*existing* code on the chain use the new version instead of the old?
+
+The design in this CIP supports both. Suppose a module `A` imports
+modules `B` and `C`. Then module `A` will be represented as the
+lambda-expression `λB.λC.A`. This can be compiled into a
+`CompleteScript` and placed on the chain, with no `ScriptArg`s, as a
+reference script in a UTxO, allowing it to be used with any
+implementations of `B` and `C`--the implementations must just be
+provided in the calling script. We call this 'dynamic linking',
+because the implementation of dependencies may vary from use to
+use. On the other hand, if we want to *fix* the versions of `B` and
+`C` then we can create a `Script` that applies the same
+`CompleteScript` to two `ScriptArg`s, containing the hashes of the
+intended versions of `B` and `C`, which will then be supplied by
+´resolveScriptDependencies`. We call this 'static linking', because
+the version choice for the dependency is fixed by the scripe. It is up
+to compiler writers to decide between static and dynamic linking
+in this sense.
+
+On the other hand, when a script is used directly as a verifier then
+there is no opportunity to supply additional arguments; all modules
+used must be supplied as `ScriptArg`s, which means they are
+fixed. This makes sense: it would be perverse if a transaction trying
+to spend a UTxO protected by a verifier were allowed to replace some
+of the code in the verifier--that would open a can of worms,
+permitting many attacks whenever a script was split over several
+modules. With the design in the CIP, it is the script in the UTxO that
+determines the module versions to be used, not the spending
+transaction. That transaction does need to supply all the modules
+actually used--including all the dependencies--but cannot choose to
+supply alternative implementations of them.
+
+If the need arises to upgrade a module used in a spending verifier,
+then that must be achieved by spending the UTxO concerned, and
+creating a new one that depends on the new module version. That is,
+the potential for code upgrade must be built into the spending
+verifier, allowing checks that the upgrade is authorised to be
+performed by the contract.
+
+### Lazy loading
+
+Dependency trees have a tendency to grow very large; when one function
+in a module uses another module, it becomes a dependency of the entire
+module and not just of that function. It is easy to imagine situations
+in which a script depends on many modules, but a particular call
+requires only a few of them. For example, if a script offers a choice
+of protocols for redemption, only one of which is used in a particular
+call, then many modules may not actually be needed. The variation
+above allows a transaction to omit the unused modules in such
+cases. This reduces the size of the transaction, which need provide
+fewer witnesses, but more importantly it reduces the amount of code
+which must be loaded from reference UTxOs.
+
+To take advantage of this possibility, it is necessary, when a
+transaction is constructed, to *observe* which script arguments are
+actually used by the script invocations needed to validate the
+transaction. The transaction balancer runs the scripts anyway, and so
+can in principle observe the uses of script arguments, and include
+witnesses in the transaction for just those arguments that are used.
+Suitable balancer modifications to achieve this are not part of this
+CIP.
+
+### Size costs
+
+Since every part of each running script must either be present in the
+transaction, or pulled in via reference inputs, then users will still
+have to pay for loading the (transitive) size of the script. However,
+if they use reference inputs for some of the arguments then it won’t
+all have to be present in the transaction, which reduces the chances
+of hitting the size limit.
+
+### Verification
+
+Since scripts invoked by a transaction specify all their dependencies
+as hashes, then the running code is completely known, and testing or
+formal verification is no harder than usual. Standalone verification
+of modules using 'dynamic linking' poses a problem, however, in that
+the code of the dependencies is unknown. This makes testing
+difficult--one would have to test with mock implementations of the
+dependencies--and formal verification would require formulating
+assumptions about the dependencies that the module can rely on, and
+later checking that the actual implementations used fulfill those
+assumptions.
+
+### Cross-module optimisation
+
+Splitting a script into separately compiled parts risks losing
+optimisation opportunities that whole-program compilation gives. Note
+that script arguments are known in advance, and so potentially some
+cross-module optimisation may be possible, but imported modules are
+shared subterms between many scripts, and they cannot be modified when
+the client script is compiled. Moreover, unrestrained inlining across
+module boundaries could result in larger script sizes, and defeat the
+purpose of breaking the code into modules in the first place.
+
+This is well-known in the compilers world: separate compilation
+reduces the amount of optimization you can do. However, users can
+make this tradeoff for themselves, where it makes sense.
+
+
 
 ## Path to Active
 ### Acceptance criteria
@@ -267,5 +345,8 @@ TODO: A plan to meet the criteria or N/A
 ## References
 ## Appendices
 ## Acknowledgements
+
+This CIP draws heavily on a design by Michael Peyton Jones.
+
 ## Copyright
 This CIP is licensed under [CC-BY-4.0]](https://creativecommons.org/licenses/by/4.0/legalcode).
