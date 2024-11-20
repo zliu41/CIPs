@@ -229,8 +229,9 @@ Just as we introduced a distinction in UPLC between `CompleteScript`
 and `Script`, so we introduce a distinction in Plinth between
 `CompiledCode a` (returned by the Plinth compiler when compiling a
 term of type `a`), and `Module a` representing a top-level `Script`
-with a value of type `a`.  ``` newtype Module a = Module {unModule ::
-Mod}
+with a value of type `a`.
+```
+newtype Module a = Module {unModule :: Mod}
 
 data Mod = forall b. Mod{ modCode :: CompiledCode b,
      	   	     	  modArgs :: [Mod],
