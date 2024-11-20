@@ -213,11 +213,57 @@ dependencies) to be omitted from the spending transaction.
 
 ### Modules in TPLC
 
+No change is needed in TPLC.
+
 ### Modules in PIR
+
+No change is needed in PIR.
 
 ### Modules in Plinth
 
-Modules in Plinth are values of the type
+The Plinth modules introduced in this CIP bear no relation to Haskell
+modules; their purpose is simply to support the module mechanism added
+to UPLC. They are first-class values in Haskell.
+
+Just as we introduced a distinction in UPLC between `CompleteScript`
+and `Script`, so we introduce a distinction in Plinth between
+`CompiledCode a` (returned by the Plinth compiler when compiling a
+term of type `a`), and `Module a` representing a top-level `Script`
+with a value of type `a`.  ``` newtype Module a = Module {unModule ::
+Mod}
+
+data Mod = forall b. Mod{ modCode :: CompiledCode b,
+     	   	     	  modArgs :: [Mod],
+			  modHash :: ScriptHash }
+```
+
+Here the `modArgs` correspond to the `ScriptArg`s in the UPLC case,
+and the `modHash` is the hash of the underlying `Script`.  The type
+parameter of `Module a` is a phantom parameter, just like the type
+parameter of `CompiledCode a`, which tells us the type of value which
+the application of the `modCode` to the `modArgs` represents. Notice
+that the module arguments will usually be of different types, and so
+they are stored in a list as the underlying representation type `Mod`.
+
+We need a way to convert `CompiledCode` into a `Module`:
+```
+makeModule :: CompiledCode a -> Module a
+makeModule code = Module (Mod code [] ...compute the script hash...)
+```
+
+and we also need a way to supply an imported module to a `Module`:
+```
+applyModule :: Module (a->b) -> Module a -> Module b
+applyModule (Module (Mod code args _)) m =
+  Module (Mod code (args++[m]) ...compute the script hash...)
+```
+
+As in UPLC, the intention is that scripts that import modules be
+written as lambda-expressions, and the imported module is then
+supplied using `applyModule`.
+
+It is `Module` values that would then be serialised to produce scripts
+for inclusion in transactions.
 
 ## Rationale: how does this CIP achieve its goals?
 
@@ -255,6 +301,13 @@ an IDL (Interface Definition Language) for UPLC, to generate this glue
 code, and enable scripts to call code in other languages more
 seamlessly. This is beyond the scope of this CIP; however this basic
 mechanism will not constrain the design of such an IDL in the future.
+
+In Plinth, because the `Module` type is a phantom type, it is easy to
+take code from elsewhere and turn it into a `Module t` for arbitrary
+choice of `t`; this can be used to import modules compiled from other
+languages into Plinth (provided a sensible Plinth type can be given to
+them).
+
 
 ### Static vs Dynamic Linking
 
