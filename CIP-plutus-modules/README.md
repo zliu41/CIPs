@@ -208,6 +208,14 @@ encryption method will be required, allowing the other (and all its
 dependencies) to be omitted from the spending transaction.
 
 
+### Modules in TPLC
+
+### Modules in PIR
+
+### Modules in Plinth
+
+Modules in Plinth are values of the type
+
 ## Rationale: how does this CIP achieve its goals?
 
 This CIP provides a minimal mechanism to split scripts across several
@@ -307,7 +315,12 @@ cases. This reduces the size of the transaction, which need provide
 fewer witnesses, but more importantly it reduces the amount of code
 which must be loaded from reference UTxOs.
 
-To take advantage of this possibility, it is necessary, when a
+If a script execution *does* try to use a module which was not
+provided, it will encounter a run-time type error and fail (unless the
+module value was `builtin unit`, in which case the script will behave
+as though the module were provided).
+
+To take advantage of this variation, it is necessary, when a
 transaction is constructed, to *observe* which script arguments are
 actually used by the script invocations needed to validate the
 transaction. The transaction balancer runs the scripts anyway, and so
@@ -316,20 +329,28 @@ witnesses in the transaction for just those arguments that are used.
 Suitable balancer modifications to achieve this are not part of this
 CIP.
 
-### Size costs
 
-Since every part of each running script must either be present in the
-transaction, or pulled in via reference inputs, then users still
-have to pay for loading the script and all its dependencies. However,
-if they use reference inputs for some of the arguments then it won’t
-all have to be present in the transaction, which reduces the chances
-of hitting the size limit.
-
-### Execution unit costs
+### Transaction fees
 
 Imported modules are provided using reference scripts, an existing
-mechanism (see CIP-33). Provided the cost of loading reference scripts
-is correctly accounted for, this CIP introduces no new problems.
+mechanism (see CIP-33), or in the transaction itself. Provided the
+cost of loading reference scripts is correctly accounted for, this CIP
+introduces no new problems.
+
+Note that there is now (since August 2024) a hard limit on the total
+size of reference scripts used in a transaction, and the transaction
+fee is exponential in the total script size (see
+[here](https://github.com/IntersectMBO/cardano-ledger/blob/master/docs/adr/2024-08-14_009-refscripts-fee-change.md)). The
+motivation is to deter DDoS attacks based on supplying very large
+Plutus scripts that are costly to deserialize, but run fast and so
+incur low execution unit fees. While these fees are likely to remain
+reasonable for moderate use of the module system, in the longer term
+they could become prohibitive for more complex applications. It may be
+thus be necessary to revisit this design decision in the future. (To
+be successful, the DDoS defence just needs fees to become sufficiently
+expensive per byte to deter the attack; they do not need to grow
+without bound). In the meantime, this exponential growth provides a
+strong motivation to prefer the "lazy loading" variation of this CIP.
 
 ### Verification
 
