@@ -111,7 +111,10 @@ Some of the 'other' modules were provided to support specific
 protocols; for example Layr Labs provide modules to support their
 Eigenlayer protocol for re-staking.
 
-Thus code sharing is clearly going on, and a (small) majority of
+A sample of 20 is too small to draw very strong statistical conclusions,
+but we can say that the 95% confidence interval for contracts to
+consist of multiple modules is 34-74%.
+Thus code sharing is clearly going on, and a significant number of
 transactions exploit multiple modules. We may conclude that there is a
 significant demand for modules in the context of smart contracts, even
 if the total contract code still remains relatively small.
