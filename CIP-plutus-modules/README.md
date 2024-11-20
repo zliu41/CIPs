@@ -260,7 +260,8 @@ applyModule (Module (Mod code args _)) m =
 
 As in UPLC, the intention is that scripts that import modules be
 written as lambda-expressions, and the imported module is then
-supplied using `applyModule`.
+supplied using `applyModule`. No change is needed in the Plinth
+compiler to support this mechanism.
 
 It is `Module` values that would then be serialised to produce scripts
 for inclusion in transactions.
