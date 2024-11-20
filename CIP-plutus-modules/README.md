@@ -46,6 +46,22 @@ in any of these languages, and then use it from all of them. A
 secondary goal is thus to define a module system which permits this,
 by supporting cross-language calls.
 
+Note that Plinth already enjoys a module system, namely the Haskell
+module system. This already enables Plinth code to be distributed
+across several modules, or put into libraries and shared. Indeed
+this is already heavily used: the DJED code base distributes Plinth
+code across 24 files, of which only 4 contain top-level contracts, and
+the others provide supporting code of one sort or another. Thus the
+software engineering benefits of a module system are already
+available; other languages compiled to UPLC could provide a module
+system in a similar way. The *disadvantage* of this approach is that
+all the Plinth code is put together into one script, which can easily
+exceed the size limit. Indeed, the DJED code base also contains an
+implementation of insertion sort in Plinth, with a comment that a
+quadratic algorithm is used because its code is smaller than, for
+example, QuickSort. There is no clearer way to indicate why the
+overall size limit must be lifted.
+
 ### The Situation on Ethereum
 
 Ethereum contracts are not directly comparable to Cardano scripts;
@@ -103,16 +119,19 @@ if the total contract code still remains relatively small.
 
 ## Specification
 
+### Adding modules to UPLC
+
 This CIP provides the simplest possible way to split scripts across
 multiple UTxOs; essentially, it allows any closed subterm to be
 replaced by its hash, whereupon the term can be supplied either as a
 witness in the invoking transaction, or via a reference script in that
 transaction. To avoid any change to the syntax of UPLC, hashes are
 allowed only at the top-level (so to replace a deeply nested subterm
-by its hash, we need to first lambda-abstract it). Thus we need only
-change the definition of a `Script`; instead of simply some code, it
-becomes the application of code to zero or more arguments, given by
-hashes.
+by its hash, we need to first lambda-abstract it). This also places
+all references to external terms in one place, where they can easily
+be found and resolved. Thus we need only change the definition of a
+`Script`; instead of simply some code, it becomes the application of
+code to zero or more arguments, given by hashes.
 
 Currently, the definition of “script” used by the ledger is (approximately):
 ```
@@ -158,7 +177,7 @@ recursive dependencies of the scripts it invokes.
 The only scripts that can be run are complete scripts, so the type of
 `runScript` changes to take a `CompleteScript` instead of a `Script`.
 
-### Variation
+#### Variation
 
 With this design, if any script hash is missing from the `preimages`,
 then the entire resolution fails. As an alternative, we might replace
@@ -300,11 +319,17 @@ CIP.
 ### Size costs
 
 Since every part of each running script must either be present in the
-transaction, or pulled in via reference inputs, then users will still
-have to pay for loading the (transitive) size of the script. However,
+transaction, or pulled in via reference inputs, then users still
+have to pay for loading the script and all its dependencies. However,
 if they use reference inputs for some of the arguments then it won’t
 all have to be present in the transaction, which reduces the chances
 of hitting the size limit.
+
+### Execution unit costs
+
+Imported modules are provided using reference scripts, an existing
+mechanism (see CIP-33). Provided the cost of loading reference scripts
+is correctly accounted for, this CIP introduces no new problems.
 
 ### Verification
 
