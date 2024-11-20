@@ -445,6 +445,9 @@ make this tradeoff for themselves, where it makes sense.
 TODO: The criteria whereby the proposal becomes 'Active'.
 ### Implementation Plan
 TODO: A plan to meet the criteria or N/A
+## Categories
+?
+I'm unsure whether this is a Plutus CIP or a Ledger CIP.
 ## Versioning
 ## References
 ## Appendices
