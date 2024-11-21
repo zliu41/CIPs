@@ -127,7 +127,7 @@ if the total contract code still remains relatively small.
 This CIP provides the simplest possible way to split scripts across
 multiple UTxOs; essentially, it allows any closed subterm to be
 replaced by its hash, whereupon the term can be supplied either as a
-witness in the invoking transaction, or via a reference script in that
+witness in the invoking transaction, or via a [reference script](https://cips.cardano.org/cip/CIP-0033) in that
 transaction. To avoid any change to the syntax of UPLC, hashes are
 allowed only at the top-level (so to replace a deeply nested subterm
 by its hash, we need to first lambda-abstract it). This also places
@@ -152,10 +152,6 @@ data Script =
 -- hash of a Script, not a CompleteScript
 type ScriptHash = ByteString
 ```
-
-`ScriptHash`es must be computed from the *hash* of the
-`CompleteScript` and the `ScriptArg`s, allowing them to be computed
-without knowing the code of the script or the arguments.
 
 We need to resolve the arguments of a script before running it:
 ```
@@ -530,3 +526,5 @@ This CIP draws heavily on a design by Michael Peyton Jones.
 
 ## Copyright
 This CIP is licensed under [CC-BY-4.0]](https://creativecommons.org/licenses/by/4.0/legalcode).
+
+
