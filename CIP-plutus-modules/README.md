@@ -406,12 +406,17 @@ the minting script must allow *burning* the old currency when the new
 one is being minted, and the new minting script must allow minting
 when the old currency is being burned, provided the code upgrade is
 correctly authorized. This is enough to allow wallets holding the old
-currency to replace it by the new one. If the currency is also to be
-stored in UTxOs protected by spending verifiers, then those verifiers
-must also accept 'currency upgrade' redeemers, and check that the UTxO
-is just being recreated with old tokens replaced by new ones.
+currency to replace it by the new one--a wallet can just submit a
+transaction that burns the old tokens and mints the new. If the
+currency is also to be stored in UTxOs protected by spending
+verifiers, then those verifiers must also accept 'currency upgrade'
+redeemers, and check that the UTxO is just being recreated with old
+tokens replaced by new ones--or alternatively, continue to use the
+old coins and exchange them when they reach a wallet. To facilitate
+this, transactions that require an input with these tokens should also
+accept old versions, along with authentication of the code upgrade.
 
-Staking validators are a simple case: they can be upgraded just by
+Staking validators are a much simpler case: they can be upgraded just by
 deregistering the state key registration certificate that refers to
 them, and then reregistering the same state key with a new staking
 validator.
