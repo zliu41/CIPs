@@ -152,6 +152,11 @@ data Script =
 -- hash of a Script, not a CompleteScript
 type ScriptHash = ByteString
 ```
+
+`ScriptHash`es must be computed from the *hash* of the
+`CompleteScript` and the `ScriptArg`s, allowing them to be computed
+without knowing the code of the script or the arguments.
+
 We need to resolve the arguments of a script before running it:
 ```
 resolveScriptDependencies 
@@ -322,35 +327,36 @@ when the identity of those modules is decided. In particular, if a
 module is replaced by a new version, perhaps fixing a bug, can
 *existing* code on the chain use the new version instead of the old?
 
-The design in this CIP supports both. Suppose a module `A` imports
-modules `B` and `C`. Then module `A` will be represented as the
-lambda-expression `λB.λC.A`. This can be compiled into a
-`CompleteScript` and placed on the chain, with no `ScriptArg`s, as a
-reference script in a UTxO, allowing it to be used with any
-implementations of `B` and `C`--the implementations must just be
-provided in the calling script. We call this 'dynamic linking',
-because the implementation of dependencies may vary from use to
-use. On the other hand, if we want to *fix* the versions of `B` and
-`C` then we can create a `Script` that applies the same
-`CompleteScript` to two `ScriptArg`s, containing the hashes of the
-intended versions of `B` and `C`, which will then be supplied by
-´resolveScriptDependencies`. We call this 'static linking', because
-the version choice for the dependency is fixed by the scripe. It is up
-to compiler writers to decide between static and dynamic linking
-in this sense.
+The design in this CIP supports both alternatives. Suppose a module
+`A` imports modules `B` and `C`. Then module `A` will be represented
+as the lambda-expression `λB.λC.A`. This can be compiled into a
+`CompleteScript` and placed on the chain, with en empty list of
+`ScriptArg`s, as a reference script in a UTxO, allowing it to be used
+with any implementations of `B` and `C`--the calling script must pass
+implementations of `B` and `C` to the lambda expression, and can
+choose them freely. We call this 'dynamic linking', because the
+implementation of dependencies may vary from use to use. On the other
+hand, if we want to *fix* the versions of `B` and `C` then we can
+create a `Script` that applies the same `CompleteScript` to two
+`ScriptArg`s, containing the hashes of the intended versions of `B`
+and `C`, which will then be supplied by
+`resolveScriptDependencies`. We call this 'static linking', because
+the version choice for the dependency is fixed by the script. It is up
+to script developers (or compiler writers) to decide between static
+and dynamic linking in this sense.
 
-On the other hand, when a script is used directly as a verifier then
+On the other hand, when a script is used directly as a validator then
 there is no opportunity to supply additional arguments; all modules
 used must be supplied as `ScriptArg`s, which means they are
 fixed. This makes sense: it would be perverse if a transaction trying
-to spend a UTxO protected by a verifier were allowed to replace some
-of the code in the verifier--that would open a can of worms,
-permitting many attacks whenever a script was split over several
-modules. With the design in the CIP, it is the script in the UTxO that
-determines the module versions to be used, not the spending
-transaction. That transaction does need to supply all the modules
-actually used--including all the dependencies--but cannot choose to
-supply alternative implementations of them.
+to spend a UTxO protected by a spending validator were allowed to
+replace some of the validation code--that would open a real can of
+worms, permitting many attacks whenever a script was split over
+several modules. With the design in the CIP, it is the script in the
+UTxO being spent that determines the module versions to be used, not
+the spending transaction. That transaction does need to *supply* all
+the modules actually used--including all of their dependencies--but it
+cannot choose to supply alternative implementations of them.
 
 ### In-service upgrade
 
@@ -359,36 +365,38 @@ lifetimes. This need is met on the Ethereum blockchain using the
 'proxy pattern'--a 'proxy' contract which delegates calls to the
 current implementation contract, whose identity is stored in the proxy
 contract's mutable state. Proxy contracts can provide a 'code upgrade'
-method which stores a new implementation contract in the mutable
-state.
+method which modifies the mutable state to store a new implementation
+contract.
+
 
 The Cardano chain does not offer mutable state. Instead, a changing
 state is represented by a succession of UTxOs, each holding the
 current state, usually with the currently-valid UTxO identified by
 holding a particular NFT. In the absence of mutable state a dependency
-cannot be updated just be changing a pointer, but scripts can still
-be upgraded by creating new values on the chain. The exact mechanism
-depends on the kind of script--and, often, on the original
-script developer preparing the ground for a later code change.
+cannot be updated just by changing a pointer, but scripts can still be
+upgraded by creating new values on the chain. The exact mechanism
+depends on the kind of script--and, often, on the original script
+developer preparing the ground for a later code change.
 
-First consider modules, stored as reference scripts in UTxOs. The hash
-of a module depends on the hash of all its dependencies, so when a
-dependency changes, then a new version of the UTxO needs to be created
-with the new dependency, and its hash needs to be distributed (by
-off-chain means). To prevent accidental use of the old UTxO, it could
-be spent.
+First consider shared modules, stored as reference scripts in
+UTxOs. The hash of a module depends on the hash of all its
+dependencies, so when a dependency changes, then a new version of the
+UTxO needs to be created with the new dependency, and its hash needs
+to be distributed (by off-chain means). To prevent accidental use of
+the old UTxO, it could be spent.
 
 UTxOs whose *spending verifier* needs upgrading can be spent and
 recreated with a new verifier, if the need has been anticipated by the
 script author. The verifier would need to accept a 'code change'
 redeemer, and then check that the transaction created a new UTxO
 protected by the new spending verifier. For example, the code change
-redeemer might provide the hash of the new verifier, and the old
-verifier would then check that the new UTxO was protected by that
-hash. This mechanism permits an arbitrary code change; of course this
-opens for attacks, so in practice such a verifier would need to check
-that the proposed code change was correctly authorised. How this is
-done is up to the contract concerned.
+redeemer might provide the script hash of the new verifier, and the
+old verifier would then check that the new UTxO, with the same
+contents, was protected by that hash. This mechanism permits an
+arbitrary code change; of course this opens for attacks, so in
+practice such a verifier would need to check that the proposed code
+change was correctly authorised. How this is done is up to the
+contract concerned.
 
 Note that *currency symbols* in Cardano are just the hash of the
 minting policy--a script. Thus, updating a dependency of a minting
@@ -397,10 +405,11 @@ convert tokens with the old currency to the new one. To allow this,
 the minting script must allow *burning* the old currency when the new
 one is being minted, and the new minting script must allow minting
 when the old currency is being burned, provided the code upgrade is
-correctly authorized. If the currency is to be stored in UTxOs
-protected by spending verifiers, then those verifiers must also accept
-'currency upgrade' redeemers, and check that the UTxO is just being
-recreated with old tokens replaced by new ones.
+correctly authorized. This is enough to allow wallets holding the old
+currency to replace it by the new one. If the currency is also to be
+stored in UTxOs protected by spending verifiers, then those verifiers
+must also accept 'currency upgrade' redeemers, and check that the UTxO
+is just being recreated with old tokens replaced by new ones.
 
 Staking validators are a simple case: they can be upgraded just by
 deregistering the state key registration certificate that refers to
