@@ -352,31 +352,80 @@ transaction. That transaction does need to supply all the modules
 actually used--including all the dependencies--but cannot choose to
 supply alternative implementations of them.
 
-If the need arises to upgrade a module used in a spending verifier,
-then that must be achieved by spending the UTxO concerned, and
-creating a new one that depends on the new module version. That is,
-the potential for code upgrade must be built into the spending
-verifier, allowing checks that the upgrade is authorised to be
-performed by the contract.
+### In-service upgrade
+
+Long-lived contracts may need upgrades and bug fixes during their
+lifetimes. This need is met on the Ethereum blockchain using the
+'proxy pattern'--a 'proxy' contract which delegates calls to the
+current implementation contract, whose identity is stored in the proxy
+contract's mutable state. Proxy contracts can provide a 'code upgrade'
+method which stores a new implementation contract in the mutable
+state.
+
+The Cardano chain does not offer mutable state. Instead, a changing
+state is represented by a succession of UTxOs, each holding the
+current state, usually with the currently-valid UTxO identified by
+holding a particular NFT. In the absence of mutable state a dependency
+cannot be updated just be changing a pointer, but scripts can still
+be upgraded by creating new values on the chain. The exact mechanism
+depends on the kind of script--and, often, on the original
+script developer preparing the ground for a later code change.
+
+First consider modules, stored as reference scripts in UTxOs. The hash
+of a module depends on the hash of all its dependencies, so when a
+dependency changes, then a new version of the UTxO needs to be created
+with the new dependency, and its hash needs to be distributed (by
+off-chain means). To prevent accidental use of the old UTxO, it could
+be spent.
+
+UTxOs whose *spending verifier* needs upgrading can be spent and
+recreated with a new verifier, if the need has been anticipated by the
+script author. The verifier would need to accept a 'code change'
+redeemer, and then check that the transaction created a new UTxO
+protected by the new spending verifier. For example, the code change
+redeemer might provide the hash of the new verifier, and the old
+verifier would then check that the new UTxO was protected by that
+hash. This mechanism permits an arbitrary code change; of course this
+opens for attacks, so in practice such a verifier would need to check
+that the proposed code change was correctly authorised. How this is
+done is up to the contract concerned.
+
+Note that *currency symbols* in Cardano are just the hash of the
+minting policy--a script. Thus, updating a dependency of a minting
+policy means changing the currency symbol. We need to be able to
+convert tokens with the old currency to the new one. To allow this,
+the minting script must allow *burning* the old currency when the new
+one is being minted, and the new minting script must allow minting
+when the old currency is being burned, provided the code upgrade is
+correctly authorized. If the currency is to be stored in UTxOs
+protected by spending verifiers, then those verifiers must also accept
+'currency upgrade' redeemers, and check that the UTxO is just being
+recreated with old tokens replaced by new ones.
+
+Staking validators are a simple case: they can be upgraded just by
+deregistering the state key registration certificate that refers to
+them, and then reregistering the same state key with a new staking
+validator.
 
 ### Lazy loading
 
-Dependency trees have a tendency to grow very large; when one function
-in a module uses another module, it becomes a dependency of the entire
-module and not just of that function. It is easy to imagine situations
-in which a script depends on many modules, but a particular call
-requires only a few of them. For example, if a script offers a choice
-of protocols for redemption, only one of which is used in a particular
-call, then many modules may not actually be needed. The variation
-above allows a transaction to omit the unused modules in such
-cases. This reduces the size of the transaction, which need provide
-fewer witnesses, but more importantly it reduces the amount of code
-which must be loaded from reference UTxOs.
+The variation in the specification section above permits what we call
+'lazy loading'.  Dependency trees have a tendency to grow very large;
+when one function in a module uses another module, it becomes a
+dependency of the entire module and not just of that function. It is
+easy to imagine situations in which a script depends on many modules,
+but a particular call requires only a few of them. For example, if a
+script offers a choice of protocols for redemption, only one of which
+is used in a particular call, then many modules may not actually be
+needed. The variation allows a transaction to omit the unused modules
+in such cases. This reduces the size of the transaction, which need
+provide fewer witnesses, but more importantly it reduces the amount of
+code which must be loaded from reference UTxOs.
 
 If a script execution *does* try to use a module which was not
 provided, it will encounter a run-time type error and fail (unless the
 module value was `builtin unit`, in which case the script will behave
-as though the module were provided).
+as though the module had been provided).
 
 To take advantage of this variation, it is necessary, when a
 transaction is constructed, to *observe* which script arguments are
@@ -398,17 +447,22 @@ introduces no new problems.
 Note that there is now (since August 2024) a hard limit on the total
 size of reference scripts used in a transaction, and the transaction
 fee is exponential in the total script size (see
-[here](https://github.com/IntersectMBO/cardano-ledger/blob/master/docs/adr/2024-08-14_009-refscripts-fee-change.md)). The
-motivation is to deter DDoS attacks based on supplying very large
-Plutus scripts that are costly to deserialize, but run fast and so
-incur low execution unit fees. While these fees are likely to remain
-reasonable for moderate use of the module system, in the longer term
-they could become prohibitive for more complex applications. It may be
-thus be necessary to revisit this design decision in the future. (To
-be successful, the DDoS defence just needs fees to become sufficiently
-expensive per byte to deter the attack; they do not need to grow
-without bound). In the meantime, this exponential growth provides a
-strong motivation to prefer the "lazy loading" variation of this CIP.
+[here](https://github.com/IntersectMBO/cardano-ledger/blob/master/docs/adr/2024-08-14_009-refscripts-fee-change.md)).The
+exponential fees provide a strong motivation to prefer the 'lazy
+loading' variation in this CIP: even a small reduction in the number
+of reference scripts that need to be provided may lead to a large
+reduction in transaction fees.
+
+The motivation for these fees is to deter DDoS attacks based on
+supplying very large Plutus scripts that are costly to deserialize,
+but run fast and so incur low execution unit fees. While these fees
+are likely to be reasonable for moderate use of the module system, in
+the longer term they could become prohibitive for more complex
+applications. It may be necessary to revisit this design decision in
+the future. To be successful, the DDoS defence just needs fees to
+become *sufficiently* expensive per byte as the total size of
+reference scripts grows; they do not need to grow without bound. So
+there is scope for rethinking here.
 
 ### Verification
 
@@ -423,7 +477,7 @@ assumptions about the dependencies that the module can rely on, and
 later checking that the actual implementations used fulfill those
 assumptions.
 
-### Cross-module optimisation
+### Impact on optimisation and scipt performance
 
 Splitting a script into separately compiled parts risks losing
 optimisation opportunities that whole-program compilation gives. Note
@@ -434,10 +488,15 @@ the client script is compiled. Moreover, unrestrained inlining across
 module boundaries could result in larger script sizes, and defeat the
 purpose of breaking the code into modules in the first place.
 
-This is well-known in the compilers world: separate compilation
-reduces the amount of optimization you can do. However, users can
-make this tradeoff for themselves, where it makes sense.
+On the other hand, since the size limit on scripts will be less of a
+problem, then compilers may be able to optimize *more*
+aggressively. For example, today the Plinth inliner is very careful
+not to increase script size, but once modules are available it may be
+able to inline more often, which can enable further optimizations.
 
+Moreover, today we see examples of deliberate choice of worse
+algorithms, because their code is smaller. Removing the need to make
+such choices can potentially improve performance considerably.
 
 
 ## Path to Active
