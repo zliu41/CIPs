@@ -374,6 +374,18 @@ upgraded by creating new values on the chain. The exact mechanism
 depends on the kind of script--and, often, on the original script
 developer preparing the ground for a later code change.
 
+Note that, on Ethereum, a proxy contract can be updated without
+changing its contract address---thanks to mutable state. On Cardano, a
+script address *is* the hash of its code; of course, changing the code
+will change the script address. It is very hard to see how that could
+be changed without a fundamental redesign of Cardano. So the methods
+discussed below are different in nature: they upgrade dependencies in
+something by replacing it with a new one, with different
+dependencies. This is really just functional programming at work: data
+is always 'updated' by creating a new version with possibly different
+content. This does mean script addresses are going to change when
+their dependencies do.
+
 First consider shared modules, stored as reference scripts in
 UTxOs. The hash of a module depends on the hash of all its
 dependencies, so when a dependency changes, then a new version of the
