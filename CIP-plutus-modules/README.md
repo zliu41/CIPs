@@ -181,7 +181,7 @@ recursive dependencies of the scripts it invokes.
 The only scripts that can be run are complete scripts, so the type of
 `runScript` changes to take a `CompleteScript` instead of a `Script`.
 
-#### Variation
+#### Variation: Lazy Loading
 
 With this design, if any script hash is missing from the `preimages`,
 then the entire resolution fails. As an alternative, we might replace
@@ -211,6 +211,91 @@ separate script arguments. In any call of the verifier, only one
 encryption method will be required, allowing the other (and all its
 dependencies) to be omitted from the spending transaction.
 
+#### Variation: Value Scripts
+
+In this variation, script code is syntactically restricted to explicit
+λ-expressions with one λ per `ScriptArg`, followed by a syntactic
+value. (Values are constants, variables, built-ins, λ-abstractions,
+delayed terms, and SoP constructors whose fields are also values).
+
+This means that every script must take the form
+`λA1.λA2....λAn.<value>`, where `n` is the number of `ScriptArg`s
+supplied. Now, since variables in `CompiledCode` are de Bruijn indices
+then the `n` λs can be omitted from the representation--we know how
+many there must be from the number of `ScriptArg`s, and the names
+themselves can be reconstructed.
+
+`Script`s in this restricted form can be mapped directly into CEK
+values, without any CEK-machine evaluation steps. In pseudocode:
+```
+scriptCekValue
+  :: Map ScriptHash CekValue
+  -> Script
+  -> CekValue
+scriptCekValue scriptValues (ScriptWithArgs head args) =
+  cekValue (Env.fromList [case lookup h scriptValues of
+	   		    Just v -> v
+			    Nothing -> vbuiltin unit
+	   		 | ScriptArg h <- args])
+	   (deserialize (getPlc head))
+           
+```
+That is, a script is turned into a value by creating a CEK machine
+environment from the values of the `ScriptArg`s, and converting the
+body of the script (a syntactic value) in a CekValue in that
+environment.
+
+This pseudocode follows the 'lazy loading' variation; an easy
+variation treats not finding a script hash as an error.
+
+Syntactic values are turned into `CekValue`s by the following
+function, which is derived by simplifying `computeCek` in
+UntypedPlutusCore.Evaluation.Machine.Cek.Internal, and restricting it
+to syntactic values.
+```
+cekValue
+  :: Env
+  -> NTerm
+  -> CEKValue
+cekValue env t = case t of
+  Var _ varname      -> lookupVarName varName env
+  Constant _ val     -> VCon val
+  LamAbs _ name body -> VLamAbs namea body env
+  Delay _ body       -> VDelay body env
+  Builtin _ bn       ->
+    let meaning = lookupBuiltin bn ?cekRuntime in
+    VBuiltin bn (Builtin () bn) meaning
+  Constr _ i es      ->
+    VConstr i (foldr ConsStack EmptyStack (map (cekValue env) es)
+  _                  -> error
+```
+Converting a syntactic value to a CekValue does require traversing it,
+but the traversal stops at λs and delays, so will normally traverse
+only the top levels of a term.
+
+Finally, if `preimages` is the `Map ScriptHash Script` constructed from
+a transaction, then we may define
+```
+scriptValues = Map.map (scriptCekValue scriptValues) preimages
+```
+to compute the CekValue of each script.
+
+Scripts are then applied to their arguments by building an initial CEK
+machine configuration applying the script value to its argument value.
+
+##### Cost
+
+Converting `Script`s to `CekValue`s does require a traversal of all
+`Script`s, and the top level of each `Script` value. This is linear
+time in the total size of the scripts, though, and should be
+considerably faster than doing the same evaluation using CEK machine
+transitions.
+
+##### Implementation concerns
+The CEK implementation does not, today, expose an API for starting
+evaluation from a given configuration, or constructing `CekValue`s
+directly, so this variation does involve significant changes to the
+CEK machine itself.
 
 ### Modules in TPLC
 
@@ -378,13 +463,14 @@ Note that, on Ethereum, a proxy contract can be updated without
 changing its contract address---thanks to mutable state. On Cardano, a
 script address *is* the hash of its code; of course, changing the code
 will change the script address. It is very hard to see how that could
-be changed without a fundamental redesign of Cardano. So the methods
-discussed below are different in nature: they upgrade dependencies in
-something by replacing it with a new one, with different
-dependencies. This is really just functional programming at work: data
-is always 'updated' by creating a new version with possibly different
-content. This does mean script addresses are going to change when
-their dependencies do.
+possibly be changed without a fundamental redesign of Cardano. So the
+methods discussed below are different in nature from the Ethereum one:
+they upgrade dependencies in something by replacing it with a new one,
+with different dependencies. This is really just functional
+programming at work: data is always 'updated' by creating a new
+version with possibly different content. This does mean that script
+addresses are going to change when their dependencies do; there's no
+way around it.
 
 First consider shared modules, stored as reference scripts in
 UTxOs. The hash of a module depends on the hash of all its
@@ -431,18 +517,19 @@ validator.
 
 ### Lazy loading
 
-The variation in the specification section above permits what we call
-'lazy loading'.  Dependency trees have a tendency to grow very large;
-when one function in a module uses another module, it becomes a
-dependency of the entire module and not just of that function. It is
-easy to imagine situations in which a script depends on many modules,
-but a particular call requires only a few of them. For example, if a
-script offers a choice of protocols for redemption, only one of which
-is used in a particular call, then many modules may not actually be
-needed. The variation allows a transaction to omit the unused modules
-in such cases. This reduces the size of the transaction, which need
-provide fewer witnesses, but more importantly it reduces the amount of
-code which must be loaded from reference UTxOs.
+The 'lazy loading' variation in the specification section above
+permits fewer modules to be supplied in a transaction.  Dependency
+trees have a tendency to grow very large; when one function in a
+module uses another module, it becomes a dependency of the entire
+module and not just of that function. It is easy to imagine situations
+in which a script depends on many modules, but a particular call
+requires only a few of them. For example, if a script offers a choice
+of protocols for redemption, only one of which is used in a particular
+call, then many modules may not actually be needed. The variation
+allows a transaction to omit the unused modules in such cases. This
+reduces the size of the transaction, which need provide fewer
+witnesses, but more importantly it reduces the amount of code which
+must be loaded from reference UTxOs.
 
 If a script execution *does* try to use a module which was not
 provided, it will encounter a run-time type error and fail (unless the
@@ -458,6 +545,47 @@ witnesses in the transaction for just those arguments that are used.
 Suitable balancer modifications to achieve this are not part of this
 CIP.
 
+### Value Scripts
+
+This section discusses the 'value scripts' variation.
+
+The main specification in this CIP represents a `Script` that imports
+modules as compiled code applied to a list of `ScriptHash`es. To
+prepare such a script for running, `resolveScriptDependencies`
+replaces each hash by the term it refers to, and builds nested
+applications of the compiled code to the arguments. These applications
+must be evaluated by the CEK machine *before* the script proper begins
+to run. Moreover, each imported module is itself translated into such
+a nested application, which must be evaluated before the module is
+passed to the client script. In a large module hierarchy this might
+cause a considerable overhead before the script proper began to
+run. Worst of all, if a module is used *several times* in a module
+dependency tree, then it must be evaluated *each time* it is
+used. Loading module dependencies traverses the entire dependency
+*tree*, which may be exponentially larger than the dependency *dag*.
+
+The value script variation addresses this problem head on. Scripts are
+converted directly into CEK-machine values that can be invoked at low
+cost. Each script is converted into a value only once, no matter how
+many times it is referred to, saving time and memory when modules
+appear several times in a module hierarchy.
+
+On the other hand it does restrict the syntactic form of
+scripts. Scripts are restricted to be syntactic lambda expressions,
+binding their script arguments at the top-level. This is not so
+onerous. But modules must also be syntactic values at the top
+level. For example, consider a module represented by a record, whose
+fields represent the exports of the module. Then all of those exports
+need to be syntactic values--an exported value could not be computed
+at run-time, for example using an API exported by another
+module. While many module exports are functions, and so naturally
+written as λ-expressions (which are values), this restriction will be
+onerous at times.
+
+This method does require opening up the API of the CEK machine, so
+that CEK values can be constructed in other modules, and introducing a
+way to run the machine starting from a given configuration. So it
+requires more invasive changes to the code than the main specification.
 
 ### Transaction fees
 
