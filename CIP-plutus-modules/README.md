@@ -593,17 +593,19 @@ quadratic number of times (in the number of scripts).
 
 First the balancer analyses all the scripts and reference scripts in a
 transaction, and builds a script dependency dag (where a script
-depends on its `ScriptArg`s). Each script is marked `alive`. Call the
-scripts which are actually run in the transaction (as validators of
-one sort or another) the *root* scripts.
+depends on its `ScriptArg`s). Call the scripts which are invoked
+directly in the transaction (as validators of one sort or another) the
+*root* scripts.
 
 Topologically sort the scripts according to the dependency relation;
 scripts may depend on scripts later in the order, but not
-earlier. Now, traverse the topologically sorted scripts in order:
+earlier. Now, traverse the topologically sorted scripts in order. This
+guarantees that removing a *later* script in the order does not cause
+an *earlier* one to become redundant.
 
 For each script, construct a modified dependency graph by removing the
 script concerned, and then 'garbage collecting'... removing all the
-scripts that are not reachable from a root. Construct a transaction
+scripts that are no longer reachable from a root. Construct a transaction
 including only the reference scripts remaining in the graph, and run
 script validation. If validation fails, restore the dependency graph
 before the modification. If validation succeeds, the script considered
@@ -648,8 +650,8 @@ value is needed, because `VTag`s will be inserted only by
 must also be added to the `NTerm` type, to be added by
 `resolveScriptDependencies`. In either case the version of
 `runScriptDependencies` *used in the balancer* tags each value or
-subterm derived from a `ScriptHash` `h` as `VTag h ...` (or `Tag` h
-... in variations other than 'value scripts').
+subterm derived from a `ScriptHash` `h` as `VTag h ...` (or `Tag h
+...` in variations other than 'value scripts').
 
 The CEK machine is parameterized over an emitter function, used for
 logging. We can make use of this to emit `ScriptHash`es as they are
@@ -662,9 +664,9 @@ such a value with `builtin unit` will not cause a validation
 failure. Only when such a value is actually *used* should we strip the
 tag, emit the `ScriptHash` in the `CekM` monad, and continue with the
 untagged value. This should be done in `returnCek`, on encountering a
-`FrameCases` context, and in `applyEvaluate` when the function to be
-applied turns out to be tagged, or when the argument to a `builtin`
-turns out to be tagged.
+`FrameCases` context for a tagged value, and in `applyEvaluate` when
+the function to be applied turns out to be tagged, or when the
+argument to a `builtin` turns out to be tagged.
 
 Adding and removing tags must be assigned a zero cost *in the
 balancer*, since the intention is that they should not appear in
