@@ -560,8 +560,129 @@ actually used by the script invocations needed to validate the
 transaction. The transaction balancer runs the scripts anyway, and so
 can in principle observe the uses of script arguments, and include
 witnesses in the transaction for just those arguments that are used.
-Suitable balancer modifications to achieve this are not part of this
-CIP.
+
+#### Balancer modifications
+
+To take advantage of 'lazy loading', it's necessary to identify
+reference scripts that are *dynamically* unused, when the scripts in a
+transaction run. The best place to do that is in a transaction
+balancer, which needs to run the scripts anyway, both to check that
+script validation succeeds, and to determine the number of execution
+units needed to run the scripts. We adopt the view that
+
+** A transaction balancer may drop reference inputs from a
+   transaction, if the resulting transaction still validates **
+
+We call reference scripts which are not actually invoked during script
+verification 'redundant'; these are the reference scripts that can be
+removed by the balancer.
+
+##### First approach: search
+
+The simplest way for a balancer to identify redundant reference inputs
+is to try rerunning the scripts with an input removed. If script
+validation still succeeds, then that input may safely be removed. The
+advantages of this approach are its simplicity, and lack of a need for
+changes anywhere else in the code. The disadvantage is that
+transaction balancing may become much more expensive: note that
+removing one reference input may make others redundant too, and so
+script verification could in the worst case need to be performed a
+quadratic number of times (in the number of scripts).
+
+##### Second approach: garbage collection
+
+First the balancer analyses all the scripts and reference scripts in a
+transaction, and builds a script dependency dag (where a script
+depends on its `ScriptArg`s). Each script is marked `alive`. Call the
+scripts which are actually run in the transaction (as validators of
+one sort or another) the *root* scripts.
+
+Topologically sort the scripts according to the dependency relation;
+scripts may depend on scripts later in the order, but not
+earlier. Now, traverse the topologically sorted scripts in order:
+
+For each script, construct a modified dependency graph by removing the
+script concerned, and then 'garbage collecting'... removing all the
+scripts that are not reachable from a root. Construct a transaction
+including only the reference scripts remaining in the graph, and run
+script validation. If validation fails, restore the dependency graph
+before the modification. If validation succeeds, the script considered
+and all the 'garbage' scripts are redundant; continue using the now
+smaller dependency graph.
+
+When all scripts have been considered in this way, then the remaining
+dependency graph contains all the scripts which are dynamically needed
+in this transaction. These are the ones that should be included in the
+transaction, either directly or as reference scripts.
+
+The advantage of this approach is that only the code in the balancer
+needs to be changed. The disadvantage is that transaction balancing
+becomes more expensive: script verification may need to be rerun up to
+once per script or reference script. In comparison to the first
+approach above, this one is more complex to implement, but replaces a
+quadratic algorithm by a linear one.
+
+##### Third approach: modified CEK machine
+
+The most direct way to determine that a script is not redundant is to
+observe it being executed during script verification. Unfortunately,
+the CEK machine, in its present form, does not make that
+possible. Thus an alternative is to *modify the CEK machine* so that a
+balancer can observe scripts being executed, and declare all the other
+scripts redundant. In comparison to the first two approaches, this is
+likely to be much more efficient, because it only requires running
+script verification once.
+
+The modifications needed to the CEK machine are as follows:
+
+`CekValue`s are extended with *tagged values*, whose use can be
+observed in the result of a run of the machine.
+```
+data CekValue uni fun ann =
+  ...
+  | VTag ScriptHash (CekValue uni fun ann)
+```
+In the 'value script' variation, no expression resulting in a `VTag`
+value is needed, because `VTag`s will be inserted only by
+`resolveScriptDependencies`. In other variations, a `Tag` constructor
+must also be added to the `NTerm` type, to be added by
+`resolveScriptDependencies`. In either case the version of
+`runScriptDependencies` *used in the balancer* tags each value or
+subterm derived from a `ScriptHash` `h` as `VTag h ...` (or `Tag` h
+... in variations other than 'value scripts').
+
+The CEK machine is parameterized over an emitter function, used for
+logging. We can make use of this to emit `ScriptHash`es as they are
+used. This allows the balancer to observe which `ScriptHash`es *were*
+used.
+
+Simply evaluating a tagged value, or building it into a
+data-structure, does not *use* it in the sense we mean here: replacing
+such a value with `builtin unit` will not cause a validation
+failure. Only when such a value is actually *used* should we strip the
+tag, emit the `ScriptHash` in the `CekM` monad, and continue with the
+untagged value. This should be done in `returnCek`, on encountering a
+`FrameCases` context, and in `applyEvaluate` when the function to be
+applied turns out to be tagged, or when the argument to a `builtin`
+turns out to be tagged.
+
+Adding and removing tags must be assigned a zero cost *in the
+balancer*, since the intention is that they should not appear in
+transactions when they are verified on the chain. Thus a zero cost is
+required for the balancer to return accurate costs for script
+verification on the chain. On the other hand, if these operations *do*
+reach the chain, then they should have a *high* cost, to deter attacks
+in which a large number of tagging operations are used to keep a
+transaction verifier busy. This can be achieved by adding a `BTag`
+step kind to the CEK machine, a `cekTagCost` to the
+`CekMachineCostsBase` type, and modifying the balancer to set this
+cost to zero during script verification.
+
+The advantage of this approach is that it only requires running each
+script once in the balancer, thus reducing the cost of balancing a
+transaction, perhaps considerably. The disadvantage is that it
+requires extensive modifications to the CEK machine itself, a very
+critical part of the Plutus infrastructure.
 
 ### Value Scripts
 
@@ -661,7 +782,7 @@ assumptions about the dependencies that the module can rely on, and
 later checking that the actual implementations used fulfill those
 assumptions.
 
-### Impact on optimisation and scipt performance
+### Impact on optimisation and script performance
 
 Splitting a script into separately compiled parts risks losing
 optimisation opportunities that whole-program compilation gives. Note
@@ -683,6 +804,10 @@ algorithms, because their code is smaller, and easier to fit within
 the script size limit. Removing the need to make such choices can
 potentially improve performance considerably.
 
+### Preferred Options
+
+TODO: summarize all the options and indicate which choices are likely
+to be best.
 
 ## Path to Active
 ### Acceptance criteria
@@ -690,8 +815,7 @@ TODO: The criteria whereby the proposal becomes 'Active'.
 ### Implementation Plan
 TODO: A plan to meet the criteria or N/A
 ## Categories
-?
-I'm unsure whether this is a Plutus CIP or a Ledger CIP.
+This is both a Plutus and a Ledger CIP.
 ## Versioning
 ## References
 ## Appendices
