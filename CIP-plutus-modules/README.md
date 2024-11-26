@@ -570,8 +570,8 @@ balancer, which needs to run the scripts anyway, both to check that
 script validation succeeds, and to determine the number of execution
 units needed to run the scripts. We adopt the view that
 
-** A transaction balancer may drop reference inputs from a
-   transaction, if the resulting transaction still validates **
+**A transaction balancer may drop reference inputs from a
+   transaction, if the resulting transaction still validates**
 
 We call reference scripts which are not actually invoked during script
 verification 'redundant'; these are the reference scripts that can be
