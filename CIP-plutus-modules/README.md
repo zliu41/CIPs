@@ -289,7 +289,15 @@ Converting `Script`s to `CekValue`s does require a traversal of all
 `Script`s, and the top level of each `Script` value. This is linear
 time in the total size of the scripts, though, and should be
 considerably faster than doing the same evaluation using CEK machine
-transitions.
+transitions. The conversion can be done *once* for a whole
+transaction, sharing the cost between several scripts if they share
+modules (such as frequently used libraries). So costs should be
+charged *for the whole transaction*, not per script. The most accurate
+cost would be proportional to the total size of values at the
+top-level of scripts. A simpler approach would be to charge a cost
+proportional to the aggregated size of all scripts, including
+reference scripts--although this risks penalizing complex scripts with
+a simple API.
 
 ##### Implementation concerns
 The CEK implementation does not, today, expose an API for starting
@@ -319,8 +327,10 @@ with a value of type `a`.
 ```
 newtype Module a = Module {unModule :: Mod}
 
-data Mod = forall b. Mod{ modCode :: CompiledCode b,
-     	   	     	  modArgs :: [Mod],
+newtype ModArg = ModArg ScriptHash
+
+data Mod = forall b. Mod{ modCode :: Maybe (CompiledCode b),
+     	   	     	  modArgs :: Maybe ([ModArg]),
 			  modHash :: ScriptHash }
 ```
 
@@ -332,23 +342,33 @@ the application of the `modCode` to the `modArgs` represents. Notice
 that the module arguments will usually be of different types, and so
 they are stored in a list as the underlying representation type `Mod`.
 
-We need a way to convert `CompiledCode` into a `Module`:
+We can convert any `ScriptHash`into a module:
+```
+fromScriptHash :: ScriptHash -> Module a
+fromScriptHash hash = Module Nothing Nothing hash
+```
+and we can convert any `CompiledCode` into a module:
 ```
 makeModule :: CompiledCode a -> Module a
-makeModule code = Module (Mod code [] ...compute the script hash...)
+makeModule code = Module (Just (Mod code)) (Just []) ...compute the script hash...
 ```
 
-and we also need a way to supply an imported module to a `Module`:
+We also need a way to supply an imported module to a `Module`:
 ```
 applyModule :: Module (a->b) -> Module a -> Module b
-applyModule (Module (Mod code args _)) m =
-  Module (Mod code (args++[m]) ...compute the script hash...)
+applyModule (Module (Mod (Just code) (Just args) _)) m =
+  Module (Mod (Just code) (Just (args++[modHash m])) ...compute the script hash...)
 ```
-
 As in UPLC, the intention is that scripts that import modules be
 written as lambda-expressions, and the imported module is then
 supplied using `applyModule`. No change is needed in the Plinth
 compiler to support this mechanism.
+
+Note that only a `Module` containing code and an argument list can
+have the argument list extended by `applyModule`; this is because the
+`ScriptHash` of the result depends on the code and the entire list of
+arguments, so it cannot be computed for a module that lacks either of
+these.
 
 It is `Module` values that would then be serialised to produce scripts
 for inclusion in transactions.
@@ -561,7 +581,7 @@ passed to the client script. In a large module hierarchy this might
 cause a considerable overhead before the script proper began to
 run. Worst of all, if a module is used *several times* in a module
 dependency tree, then it must be evaluated *each time* it is
-used. Loading module dependencies traverses the entire dependency
+used. Resolving module dependencies traverses the entire dependency
 *tree*, which may be exponentially larger than the dependency *dag*.
 
 The value script variation addresses this problem head on. Scripts are
@@ -585,7 +605,17 @@ onerous at times.
 This method does require opening up the API of the CEK machine, so
 that CEK values can be constructed in other modules, and introducing a
 way to run the machine starting from a given configuration. So it
-requires more invasive changes to the code than the main specification.
+requires more invasive changes to the code than the main
+specification.
+
+### `ScriptHash` allowed in terms?
+
+An alternative design would allow UPLC terms to contain `ScriptHash`es
+directly, rather than as λ-abstracted variables, to be looked up in a
+global environment at run-time. This would also require changes to the
+CEK machine, and is not really likely to perform better than the
+'value scripts' variation; however, it is less flexible because it
+does not support dynamic linking (see (Static vs Dynamic Linking)[#static-vs-dynamic-linking]).
 
 ### Transaction fees
 
