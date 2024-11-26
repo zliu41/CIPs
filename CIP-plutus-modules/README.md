@@ -806,6 +806,40 @@ algorithms, because their code is smaller, and easier to fit within
 the script size limit. Removing the need to make such choices can
 potentially improve performance considerably.
 
+### Related work
+
+#### Merkelized Validators
+
+Philip DiSarro describes ["Merkelized
+validators"](https://github.com/Anastasia-Labs/design-patterns/blob/main/merkelized-validators/merkelized-validators.md),
+which offer a way of offloading individual function calls to stake
+validators: the client script just checks that the appropriate stake
+validator is invoked with a particular function-argument and result
+pair, checks that the argument equals the argument it wants to call
+the function with, and then uses the result as the result of the
+function. The stake validator inspects the argument-result pair,
+computes the function for the given argument, and checks that the
+result equals the result in the pair. This design pattern enables the
+logic of a script to be split between the client script and the stake
+validator, thus circumventing the limits on script size. It also
+permits the result of a function to be computed *once*, and shared by
+many scripts, thus achieving a kind of memoisation. However, it is a
+little intricate to set up, and not really an alternative to a module
+system.
+
+#### The WebAssembly Component Model
+
+The [Web Assembly Component
+Model](https://component-model.bytecodealliance.org/) defines a
+high-level IDL to enable components written in different programming
+languages (such as C/C++, C#, Go, Python and Rust), to work together
+in one WebAssembly system. WASM already has a module system, and a
+WASM component may consist of a number of modules (written in the same
+language). The focus here is on interaction between *different*
+programming languages in a well-typed way. Defining such an IDL for
+Cardano might be useful in the future, but it is too early to do so
+now.
+
 ### Preferred Options
 
 TODO: summarize all the options and indicate which choices are likely
@@ -817,8 +851,24 @@ TODO: The criteria whereby the proposal becomes 'Active'.
 ### Implementation Plan
 TODO: A plan to meet the criteria or N/A
 ## Categories
-This is both a Plutus and a Ledger CIP.
-## Versioning
+This is a Plutus CIP.
+
+As a Plutus CIP, it leaves UPLC, TPLC, PIR and Plinth *unchanged*
+except for the addition of an API for building and using modules in
+Plinth. In the case of the 'modified CEK machine' alternative for
+'balancer modifications', without 'value scripts', it requires *adding
+a construct* to UPLC to tag values so that their use can be observed;
+this is a *minor* change which is backwards-compatible, but it would
+require a new PlutusCore language version.
+
+Because this CIP changes the representation of scripts, it requires a
+new Plutus Core ledger language, and can only be introduced at a hard
+fork.
+
+As far as the Ledger is concerned, the representation of a script is
+just `bytes`. This does not change. Therefore there are no changes to
+the Ledger, and thus this is not a Ledger CIP,
+
 ## References
 ## Appendices
 ## Acknowledgements
