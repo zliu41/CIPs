@@ -869,8 +869,6 @@ As far as the Ledger is concerned, the representation of a script is
 just `bytes`. This does not change. Therefore there are no changes to
 the Ledger, and thus this is not a Ledger CIP,
 
-## References
-## Appendices
 ## Acknowledgements
 
 This CIP draws heavily on a design by Michael Peyton Jones.
