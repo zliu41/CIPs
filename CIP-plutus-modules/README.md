@@ -338,11 +338,9 @@ Here the `modArgs` correspond to the `ScriptArg`s in the UPLC case,
 and the `modHash` is the hash of the underlying `Script`.  The type
 parameter of `Module a` is a phantom parameter, just like the type
 parameter of `CompiledCode a`, which tells us the type of value which
-the application of the `modCode` to the `modArgs` represents. Notice
-that the module arguments will usually be of different types, and so
-they are stored in a list as the underlying representation type `Mod`.
+the application of the `modCode` to the `modArgs` represents. 
 
-We can convert any `ScriptHash`into a module:
+We can convert any `ScriptHash` into a module:
 ```
 fromScriptHash :: ScriptHash -> Module a
 fromScriptHash hash = Module Nothing Nothing hash
@@ -612,10 +610,16 @@ specification.
 
 An alternative design would allow UPLC terms to contain `ScriptHash`es
 directly, rather than as λ-abstracted variables, to be looked up in a
-global environment at run-time. This would also require changes to the
-CEK machine, and is not really likely to perform better than the
-'value scripts' variation; however, it is less flexible because it
-does not support dynamic linking (see (Static vs Dynamic Linking)[#static-vs-dynamic-linking]).
+global environment at run-time. This would address ths same problem:
+the cost of performing many applications before script evaluation
+proper begins. This would also require changes to the CEK machine, and
+is not really likely to perform better than the 'value scripts'
+variation (in practice, the main difference is the use of a global
+environment to look up script hashes, as opposed to many per-module
+ones). However, this approach is less flexible because it does not
+support dynamic linking (see Static vs Dynamic Linking above). Once a
+`ScriptHash` is embedded in a term, then a different version of the
+script cannot readily be used instead.
 
 ### Transaction fees
 
@@ -675,8 +679,9 @@ not to increase script size, but once modules are available it may be
 able to inline more often, which can enable further optimizations.
 
 Moreover, today we see examples of deliberate choice of worse
-algorithms, because their code is smaller. Removing the need to make
-such choices can potentially improve performance considerably.
+algorithms, because their code is smaller, and easier to fit within
+the script size limit. Removing the need to make such choices can
+potentially improve performance considerably.
 
 
 ## Path to Active
