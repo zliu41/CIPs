@@ -587,18 +587,20 @@ changes anywhere else in the code. The disadvantage is that
 transaction balancing may become much more expensive--quadratic in the
 number of scripts, in the worst case.
 
-The reason for this is that removing one reference input may make
-others redundant too; for example if script A depends on script B,
-then script B may not become redundant only after script A has been
-removed--just evaluating script A may use the value of B. So if the
-balancer tries to remove B first, it will fail--and so B must be
-revisited after A has been shown to be redundant. In the absence of
+The reason for this is that removing one script may make others
+redundant too; for example if script A depends on script B, then
+script B may become redundant only after script A has been
+removed--simply evaluating script A may use the value of B, and
+scripts are evaluated when they are passed to other scripts, whether
+they are redundant or not. So if the balancer tries to remove B first,
+then script verification will fail--and so the balancer must try again
+to remove B after A has been shown to be redundant. Unless we exploit
 information on script dependencies, after one successful script
 removal then all the others must be revisited. Hence a quadratic
 complexity.
 
-In the case of 'value scripts' this argument does not apply: just
-evaluating a script will not fail because a different script is not
+In the case of 'value scripts' this argument does not apply:
+evaluating a script will not fail just because a different script is not
 present. In this case it would be sufficient to traverse all the
 scripts once, resulting in a linear number of transaction
 verifications.
