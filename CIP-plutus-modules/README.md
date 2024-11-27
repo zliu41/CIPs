@@ -280,6 +280,10 @@ scriptValues = Map.map (scriptCekValue scriptValues) preimages
 ```
 to compute the CekValue of each script.
 
+**This recursive definition would allow an attacker to cause a
+  black-hole exception in the transaction validator. FIX THIS!!!**
+
+
 Scripts are then applied to their arguments by building an initial CEK
 machine configuration applying the script value to its argument value.
 
@@ -880,13 +884,13 @@ from transactions, potentially making transactions exponentially
 cheaper. To take full advantage of it requires a balancer that can
 drop redundant scripts from transactions. Three alternative methods
 are described: *search*, the simplest, which must run script
-verification a quadratic number of times in the number of scripts, in
+verification a quadratic number of times in the number of scripts in
 the worst case; *garbage collection*, a self-contained change to the
-balancer which analyses script dependencies and thus need run script
+balancer which analyses script dependencies and thus needs to run script
 verification only a linear number of times; a *modified CEK machine*
 which adds tagged values to the machine, which the balancer can use to
 identify redundant scripts in *one* run of script verification,
-possibly requiring one more to make accurate exunit cost estimates.
+possibly requiring one more run to make accurate exunit cost estimates.
 
 The *value scripts* variation restricts scripts to be explicit
 λ-expressions binding the script arguments, with an innermost script
@@ -894,9 +898,10 @@ body which is a syntactic value. Such scripts can be converted to CEK
 values in a single traversal; each script can be converted to a value
 *once per transaction*, rather than at every use. This variation is
 expected to reduce the start-up costs of running each script
-considerably; on the down-side it requires CEK operations which are
-not currently part of the API, so it requires modifications to a
-critical component of the Plutus implementation.
+considerably; on the down-side the syntactic restriction would be a
+little annoying, and it requires CEK operations which are not
+currently part of the API, so it requires modifications to a critical
+component of the Plutus implementation.
 
 The simplest alternative to implement would be the main alternative
 without variations. The most efficient implementation would combine
