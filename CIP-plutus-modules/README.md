@@ -584,10 +584,24 @@ is to try rerunning the scripts with an input removed. If script
 validation still succeeds, then that input may safely be removed. The
 advantages of this approach are its simplicity, and lack of a need for
 changes anywhere else in the code. The disadvantage is that
-transaction balancing may become much more expensive: note that
-removing one reference input may make others redundant too, and so
-script verification could in the worst case need to be performed a
-quadratic number of times (in the number of scripts).
+transaction balancing may become much more expensive--quadratic in the
+number of scripts, in the worst case.
+
+The reason for this is that removing one reference input may make
+others redundant too; for example if script A depends on script B,
+then script B may not become redundant only after script A has been
+removed--just evaluating script A may use the value of B. So if the
+balancer tries to remove B first, it will fail--and so B must be
+revisited after A has been shown to be redundant. In the absence of
+information on script dependencies, after one successful script
+removal then all the others must be revisited. Hence a quadratic
+complexity.
+
+In the case of 'value scripts' this argument does not apply: just
+evaluating a script will not fail because a different script is not
+present. In this case it would be sufficient to traverse all the
+scripts once, resulting in a linear number of transaction
+verifications.
 
 ##### Second approach: garbage collection
 
