@@ -600,7 +600,7 @@ removal then all the others must be revisited. Hence a quadratic
 complexity.
 
 In the case of 'value scripts' this argument does not apply:
-evaluating a script will not fail just because a different script is not
+evaluating a script will never fail just because a different script is not
 present. In this case it would be sufficient to traverse all the
 scripts once, resulting in a linear number of transaction
 verifications.
@@ -701,6 +701,11 @@ script once in the balancer, thus reducing the cost of balancing a
 transaction, perhaps considerably. The disadvantage is that it
 requires extensive modifications to the CEK machine itself, a very
 critical part of the Plutus infrastructure.
+
+##### Fourth approach: lazy scripts
+
+TODO: Possibly add a discussion of tracing script use by exploiting
+lazy evaluation.
 
 ### Value Scripts
 
@@ -858,8 +863,50 @@ now.
 
 ### Preferred Options
 
-TODO: summarize all the options and indicate which choices are likely
-to be best.
+Allowing script code to be spread across many transactions lifts the
+most commonly complained-about restriction faced by Cardano script
+developers. It permits more complex applications, and a much heavier
+use of libraries to raise the level of abstraction for script
+developers. Modules are already available on the Ethereum blockchain,
+and quite heavily used. Adopting this CIP, in one of its variations,
+will make Cardano considerably more competitive against other smart
+contract platforms.
+
+The *main alternative* in this CIP is the simplest design, is easiest
+to implement, but suffers from several inefficiencies.
+
+The *lazy loading* variation allows redundant scripts to be omitted
+from transactions, potentially making transactions exponentially
+cheaper. To take full advantage of it requires a balancer that can
+drop redundant scripts from transactions. Three alternative methods
+are described: *search*, the simplest, which must run script
+verification a quadratic number of times in the number of scripts, in
+the worst case; *garbage collection*, a self-contained change to the
+balancer which analyses script dependencies and thus need run script
+verification only a linear number of times; a *modified CEK machine*
+which adds tagged values to the machine, which the balancer can use to
+identify redundant scripts in *one* run of script verification,
+possibly requiring one more to make accurate exunit cost estimates.
+
+The *value scripts* variation restricts scripts to be explicit
+λ-expressions binding the script arguments, with an innermost script
+body which is a syntactic value. Such scripts can be converted to CEK
+values in a single traversal; each script can be converted to a value
+*once per transaction*, rather than at every use. This variation is
+expected to reduce the start-up costs of running each script
+considerably; on the down-side it requires CEK operations which are
+not currently part of the API, so it requires modifications to a
+critical component of the Plutus implementation.
+
+The simplest alternative to implement would be the main alternative
+without variations. The most efficient implementation would combine
+value scripts with lazy loading, using tagged values in the CEK
+machine to analyse dynamic script dependencies in the balancer, and so
+drop redundant scripts from each transaction. However, this requires
+modifications to the CEK machine and the balancer as well as resolving
+dependencies in scripts.
+
+Our recommendation is: TBD.
 
 ## Path to Active
 ### Acceptance criteria
