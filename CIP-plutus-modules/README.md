@@ -225,6 +225,10 @@ then the `n` λs can be omitted from the representation--we know how
 many there must be from the number of `ScriptArg`s, and the names
 themselves can be reconstructed.
 
+There must be a dynamic check that the code of each script really is
+of this form, but this check can be built into deserialization, and
+thus need cost very little.
+
 `Script`s in this restricted form can be mapped directly into CEK
 values, without any CEK-machine evaluation steps. In pseudocode:
 ```
