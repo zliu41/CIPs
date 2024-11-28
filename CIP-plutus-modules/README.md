@@ -280,12 +280,25 @@ scriptValues = Map.map (scriptCekValue scriptValues) preimages
 ```
 to compute the CekValue of each script.
 
-**This recursive definition would allow an attacker to cause a
-  black-hole exception in the transaction validator. FIX THIS!!!**
-
 
 Scripts are then applied to their arguments by building an initial CEK
 machine configuration applying the script value to its argument value.
+
+Note that this recursive definition of `scriptValues` could potentially allow an
+attacker to cause a black-hole exception in the transaction validator,
+by submitting a transaction containing scripts with a dependency
+cycle. However, since scripts are referred to by hashes, then
+constructing such a transaction would require an attack on the hash
+function itself... for example a script hash `h` and values for `head`
+and `args` such that
+```
+h = hash (Script head (h:args))
+```
+We assume that finding such an `h` is impossible in practice; should
+this not be the case, then we must build a script dependency graph for
+each transaction and check that it is acyclic before evaluating the
+scripts in this way.
+
 
 ##### Cost
 
