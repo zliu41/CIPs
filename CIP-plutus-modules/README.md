@@ -725,8 +725,76 @@ critical part of the Plutus infrastructure.
 
 ##### Fourth approach: lazy scripts
 
-TODO: Possibly add a discussion of tracing script use by exploiting
-lazy evaluation.
+Another way to observe script uses *without* modifying the CEK machine
+is to wrap them in `Delay` and force them at the point of use. The
+balancer can then insert trace output of the script hash just inside
+the `Delay`, and so observe which scripts are actually forced during
+script execution.
+
+The difficulties with this approach arise from the fact that delayed
+closures must be *explicitly* forced in UPLC; this does not 'just
+happen' when a delayed value is used. This means that corresponding
+`Force` operations must also be added to scripts, and the question is:
+who does this, and if it is to be done automatically, then how?
+
+One possibility is that it is the developer's responsibility to force
+script arguments at the point of use--that is, that the `Force`
+operations needed would be written by the human programmer. It follows
+that they would *always* be part of the script, even when running on
+the chain, and so even on the chain script arguments would need to be
+delayed (even if no trace output would be needed). This would increase
+code size a little, and impose a force-delay overhead on every
+cross-module reference, which is probably not acceptable.
+
+The alternative is to have the balancer insert corresponding `Force`
+operations, as well as the `Delay`s. A simple way to do so is would be
+to add a `Force` around every use of a variable corresponding to a
+script argument--under the 'value scripts' syntactic restriction these
+variables are easy to identify. These modifications would not be made
+during normal script verification, which might therefore cost less--or
+more--than the modified balancer run. The balancer would thus need to
+perform script verification twice: once with `Delay` and
+`Force`inserted to determine redundant scripts, and then a second time
+(with redundant scripts removed) to determine the actual cost on the
+chain.
+
+The bigger problem with this approach, though, is that it will
+*overestimate* the set of used scripts, leading to larger script code,
+and potentially exponentially more expensive transactions. The reason
+for the overestimation is that *all* occurrences of variables bound to
+script arguments are wrapped in `Force`, even those that would not
+lead to untagging the corresponding tagged value in the third approach
+above. For example, suppose a variable bound to a script argument is
+passed as a parameter to another function. With the simple
+`Force`-placement strategy described above, the script argument would
+be forced *at that call*, making the corresponding script appear to be
+used, even though the function it is passed to might not actually use
+it in all cases. Hence the set of scripts used would be overestimated.
+
+One might use a more sophisticated strategy to insert `Force`
+operations. For example, in the case described above one might pass
+the script argument *unforced* to the function, and modify the
+function to force it when it is used. This would require the balancer
+to perform a flow analysis, to identify the functions that might be
+passed a delayed script argument. Moreover, such functions might be
+called *sometimes* with a delayed script argument, and sometimes
+not. The code could be replicated to create two versions of such
+functions. But with *n* script arguments, this might require up to
+*2^n* versions of each function, leading to an exponential increase in
+code size. An attacker could exploit this to craft a transaction that
+would cause the balancer to run out of memory. This is really not
+attractive.
+
+Finally, one might finesse these problems by modifying the CEK machine
+to force delayed closures automatically where the value is required,
+thus enabling explicit `Force` operations to be omitted. This would
+effectively turn UPLC into a lazy programming language. That would
+enable this problem to be solved more easily, but  at the cost of
+reversing a rather fundamental design decision in UPLC--and probably
+making the CEK machine a little bit slower, for all programs.
+
+Thus it appears that there is no good way of using UPLC's existing
+lazy evaluation to observe use of script arguments.
 
 ### Value Scripts
 
