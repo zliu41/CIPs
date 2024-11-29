@@ -326,6 +326,19 @@ evaluation from a given configuration, or constructing `CekValue`s
 directly, so this variation does involve significant changes to the
 CEK machine itself.
 
+#### Subvariation: Module-level recursion
+
+Many modules define recursive functions at the top-level. In this
+variation, the innermost body of a script is further restricted to the
+form `λSelf.<value>`, and `resolveScriptDependencies applies an
+implicit `fix` to the script body, after supplying the script
+arguments.  Like the other λs binding script arguments, the `λSelf.`
+need not appear in the actual representation; we know it has to be
+there so we can just store the body of the `λ`. When a script is
+evaluated, the value of the script is just added to the environment in
+the same way as the script arguments. The script can then refer to
+its own value using `Self`.
+
 ### Modules in TPLC
 
 No change is needed in TPLC.
@@ -747,7 +760,7 @@ code size a little, and impose a force-delay overhead on every
 cross-module reference, which is probably not acceptable.
 
 The alternative is to have the balancer insert corresponding `Force`
-operations, as well as the `Delay`s. A simple way to do so is would be
+operations, as well as the `Delay`s. A simple way to do so would be
 to add a `Force` around every use of a variable corresponding to a
 script argument--under the 'value scripts' syntactic restriction these
 variables are easy to identify. These modifications would not be made
@@ -759,17 +772,18 @@ perform script verification twice: once with `Delay` and
 chain.
 
 The bigger problem with this approach, though, is that it will
-*overestimate* the set of used scripts, leading to larger script code,
-and potentially exponentially more expensive transactions. The reason
-for the overestimation is that *all* occurrences of variables bound to
-script arguments are wrapped in `Force`, even those that would not
-lead to untagging the corresponding tagged value in the third approach
-above. For example, suppose a variable bound to a script argument is
-passed as a parameter to another function. With the simple
-`Force`-placement strategy described above, the script argument would
-be forced *at that call*, making the corresponding script appear to be
-used, even though the function it is passed to might not actually use
-it in all cases. Hence the set of scripts used would be overestimated.
+*overestimate* the set of used scripts, leading to more scripts being
+used in a transaction, and thus potentially exponentially more
+expensive transactions. The reason for the overestimation is that
+*all* occurrences of variables bound to script arguments are wrapped
+in `Force`, even those that would not lead to untagging the
+corresponding tagged value in the third approach above. For example,
+suppose a variable bound to a script argument is passed as a parameter
+to another function. With the simple `Force`-placement strategy
+described above, the script argument would be forced *at that call*,
+making the corresponding script appear to be used, even though the
+function it is passed to might not actually use it in all cases. Hence
+the set of scripts used would be overestimated.
 
 One might use a more sophisticated strategy to insert `Force`
 operations. For example, in the case described above one might pass
@@ -839,13 +853,13 @@ way to run the machine starting from a given configuration. So it
 requires more invasive changes to the code than the main
 specification.
 
-### `ScriptHash` allowed in terms?
+#### `ScriptHash` allowed in terms?
 
 An alternative design would allow UPLC terms to contain `ScriptHash`es
 directly, rather than as λ-abstracted variables, to be looked up in a
-global environment at run-time. This would address ths same problem:
+global environment at run-time. This would address this same problem:
 the cost of performing many applications before script evaluation
-proper begins. This would also require changes to the CEK machine, and
+proper begins. It would also require changes to the CEK machine, and
 is not really likely to perform better than the 'value scripts'
 variation (in practice, the main difference is the use of a global
 environment to look up script hashes, as opposed to many per-module
@@ -853,6 +867,43 @@ ones). However, this approach is less flexible because it does not
 support dynamic linking (see Static vs Dynamic Linking above). Once a
 `ScriptHash` is embedded in a term, then a different version of the
 script cannot readily be used instead.
+
+#### Module-level recursion
+
+This section discusses the `module-level recursion` subvariation of
+the `value scripts` variation.
+
+UPLC provides a fixpoint combinator, and this is how recursion is
+compiled. For the sake of argument, consider the well-known fixpoint
+combinator `Y` (in reality, `Y` is not suitable for use in a strict
+programming language, so the UPLC version is slightly different). We
+can imagine that a recursive function `f` is compiled as `Y h`, for
+some suitable `h`.
+
+The difficulty that arises is that `Y h` *is not a value*, and thus
+cannot appear at the top-level of a module, under the 'value script'
+restriction. It can be *normalised* into a value, of course, using
+```
+Y h ---> h (Y h)
+```
+and then reducing the application of `h`; this would need to be done
+by a compiler generating UPLC with the `value script`
+restriction. But reducing `h (Y h)` may well duplicate `Y h`. When
+this happens at CEK runtime it is not a problem, because all the
+occurrences of `Y h` are represented by the same pointer. But when the
+reductions are applied by a compiler, and the resulting term is
+serialized to UPLC code for inclusion in a script, then each
+occurrence of `Y h` will be serialized separately, losing sharing and
+causing code duplication in the resulting script. The result could be
+*larger* code, the opposite of what we are trying to achieve. Thus
+this method of compiling recursion fits badly with the 'value scripts'
+variation.
+
+Hence module-level recursion, which allows recursive occurrences of
+script values to be referred to via the `Self` variable instead of
+using a fixpoint combinator implemented in UPLC. To take advantage of
+this feature, the compiler will need to float occurrences of `fix`
+upwards, to the top-level of a module.
 
 ### Transaction fees
 
