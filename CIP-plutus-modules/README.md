@@ -330,7 +330,7 @@ CEK machine itself.
 
 Many modules define recursive functions at the top-level. In this
 variation, the innermost body of a script is further restricted to the
-form `λSelf.<value>`, and `resolveScriptDependencies applies an
+form `λSelf.<value>`, and `resolveScriptDependencies` applies an
 implicit `fix` to the script body, after supplying the script
 arguments.  Like the other λs binding script arguments, the `λSelf.`
 need not appear in the actual representation; we know it has to be
