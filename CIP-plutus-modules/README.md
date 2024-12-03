@@ -326,7 +326,7 @@ evaluation from a given configuration, or constructing `CekValue`s
 directly, so this variation does involve significant changes to the
 CEK machine itself.
 
-#### Subvariation: Module-level recursion
+##### Subvariation: Module-level recursion
 
 Many modules define recursive functions at the top-level. In this
 variation, the innermost body of a script is further restricted to the
@@ -338,6 +338,32 @@ there so we can just store the body of the `λ`. When a script is
 evaluated, the value of the script is just added to the environment in
 the same way as the script arguments. The script can then refer to
 its own value using `Self`.
+
+#### Variation: Tuples of modules
+
+In the main specification in this CIP, script code is a curried
+function of the script arguments; that is, imported modules are
+supplied to scripts as individual arguments. In this variation, the
+script code is instead an *uncurried* function of the script
+arguments, which are tupled together to be passed to the script code.
+
+This variation only makes sense if the 'value scripts' variation is
+also adopted, and places an additional syntactic restriction on script
+code: it must be of the form `λMods.e`, and all occurrences of `Mods`
+in `e` must be of the form `proj i Mods` for some `i`. That is, it is
+impossible to refer to the whole tuple of modules; scripts can refer
+to only one module at a time.
+
+To avoid additional overheads for scripts without arguments, we
+redefine the `Script` type as follows:
+```
+data Script = 
+    CompleteScript CompleteScript
+  | ScriptWithArgs { head :: CompleteScript, args :: [Arg] }
+```
+Here the `CompleteScript` alternative is used for scripts without
+script arguments; such scripts are not applied to a tuple of modules
+before use, and so need not be of the form `λMods.e`.
 
 ### Modules in TPLC
 
@@ -906,7 +932,7 @@ this feature, the compiler will need to float occurrences of `fix`
 upwards, to the top-level of a module. This can be done using suitable
 analogues of the rules 
 ```
-(..,fix (λx.e),...) ---> fix (λx.(..,e[proj i x/x],..)
+(..,fix (λx.e),...) ---> fix (λx.(..,e[proj i x/x],..))
 ```
 where `i` is the index in the tuple at which `fix (λx.e)` appears,
 `proj i x` selects the `i`th component from `x`, and `x` does not
@@ -917,6 +943,35 @@ fix (λx. fix (λy.e)) ---> fix (λx. e[x/y])
 ```
 Both these rules require adjusting deBruin numbers in the UPLC
 implementation. 
+
+#### Variation: Tuples of modules
+
+This variation changes the way modules are referenced in scripts: in
+the main specification, each imported module is bound to a name in the
+environment, and referenced using the associated variable; in this
+variation *all* imported modules are bound to a single name, and
+modules are referenced by projecting the corresponding component from
+the tuple bound to this name.
+
+Thus: in the main specification, a module reference costs one name
+lookup; in this variation, a module reference costs a name lookup plus
+projection of a component from a tuple. However, because projecting a
+component from a tuple is constant time, while the cost of a
+name lookup is logarithmic in the number of names in the environment,
+then this variation may reduce the cost of module references--since
+scripts which import many modules will run with significantly fewer
+names in the environment.
+
+Note that the uncurried script form can be generated from the curried
+one, by
+* introducing a `λMods.` outermost,
+* removing the `λ`s binding names to script arguments,
+* substituting `proj i Mods` for the `i`th script argument name in the
+script body
+
+Thus there is no need for any change to earlier parts of the compiler,
+or to the languages Plutus, PIR, or TPLC. Tuples of modules can be
+introduced as a last step in the generation of UPLC.
 
 ### Transaction fees
 
