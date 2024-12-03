@@ -903,7 +903,20 @@ Hence module-level recursion, which allows recursive occurrences of
 script values to be referred to via the `Self` variable instead of
 using a fixpoint combinator implemented in UPLC. To take advantage of
 this feature, the compiler will need to float occurrences of `fix`
-upwards, to the top-level of a module.
+upwards, to the top-level of a module. This can be done using suitable
+analogues of the rules 
+```
+(..,fix (λx.e),...) ---> fix (λx.(..,e[proj i x/x],..)
+```
+where `i` is the index in the tuple at which `fix (λx.e)` appears,
+`proj i x` selects the `i`th component from `x`, and `x` does not
+occur free elsewhere in the tuple; a corresponding rule for
+constructor applications; and 
+```
+fix (λx. fix (λy.e)) ---> fix (λx. e[x/y])
+```
+Both these rules require adjusting deBruin numbers in the UPLC
+implementation. 
 
 ### Transaction fees
 
