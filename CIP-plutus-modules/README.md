@@ -365,6 +365,53 @@ Here the `CompleteScript` alternative is used for scripts without
 script arguments; such scripts are not applied to a tuple of modules
 before use, and so need not be of the form `λMods.e`.
 
+##### Subvariation: Global module environment
+
+In the 'tuples of modules' variation, each script is paremeterised on
+a tuple of modules, and fetches the modules when needed by projecting
+out a component of the tuple. In the 'global module environment'
+subvariation, *all* the modules are placed in *one* tuple, from which
+scripts fetch the modules they need.
+
+The global module environment is constructed for the transaction as a
+whole, containing all the scripts provided by the transaction. It
+follows that the *same* module may end up in *different* components in
+different transactions. Scripts refer to other modules via references
+of the form `proj i Mods`, where `Mods` is the variable bound to the
+tuple of modules. Before scripts are run, these references must be
+replaced by `proj j Mods`, where `j` is the index of the corresponding
+module in the global module environment. Thus it is necessary to
+traverse the code of all the scripts, relocating module references to
+refer to the global module environment instead. One this is done, then all
+the script values can refer to the *same* tuple of modules.
+
+###### Subsubvariation: Module environment built into the CEK machine
+
+In this subsubvariation, the (single) tuple of modules is built into
+the `CekM` monad, instead of being passed as a parameter in
+UPLC. Consequently it cannot be accessed as a UPLC variable; new UPLC
+constructs are needed instead. Since references to the global tuple of
+modules always refer to a *particular* module, then it suffices to add
+a construct of the form
+```
+data Term name uni fun ann =
+    ..
+  | ModuleRef Int
+```
+such that `ModuleRef i` evaluates to the `i`th component of the global
+module tuple.
+
+Once again, the scripts provided in a transaction must refer to script
+arguments using an index into *the script's own* script arguments;
+before execution these indices must be replaced by the corresponding
+indices in the global module environment, necessitating a traversal of
+the script code to prepare it for execution.
+
+Because this variation adds an additional parameter to every
+computation in the `CekM` monad, it affects the cost of every
+operation in the CEK machine. If this variation is chosen, it will be
+necessary to recalibrate the costs of every UPLC operation.
+
 ### Modules in TPLC
 
 No change is needed in TPLC.
@@ -972,6 +1019,29 @@ script body
 Thus there is no need for any change to earlier parts of the compiler,
 or to the languages Plutus, PIR, or TPLC. Tuples of modules can be
 introduced as a last step in the generation of UPLC.
+
+##### Subvariation: Global module environment
+
+The advantage of using a global module environment instead of one
+tuple of modules per script is that only one, big, tuple of modules
+per transaction need be constructed, instead of one per script. The
+cost is an additional traversal of the script code, needed to adjust
+module indices to refer to the correct index in the global tuple of
+modules. By itself, this is unlikely to improve performance.
+
+However, using a global module environment is a prerequisite to
+building the module environment into the CEK machine. Doing the latter
+transforms a module reference from a projection from the
+tuple-of-modules variable, to a custom construction `ModuleRef i` that
+directly accesses the module in the `i`th component of the global
+module environment. This reduces the cost from a variable lookup plus
+a projection, to just a projection; this is expected to speed up every
+reference to an external module.
+
+On the other hand, since it necessitates a change to the `CekM` monad
+underlying the CEK machine implementation, then it also requires
+recalibrating the cost of every UPLC operation.
+
 
 ### Transaction fees
 
