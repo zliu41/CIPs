@@ -1342,7 +1342,9 @@ the Ledger, and thus this is not a Ledger CIP,
 
 ## Acknowledgements
 
-This CIP draws heavily on a design by Michael Peyton Jones.
+This CIP draws heavily on a design by Michael Peyton Jones, and has
+benefitted greatly from discussion with Ziyang Liu, Roman Kireev, and
+Phil Wadler.
 
 ## Copyright
 This CIP is licensed under [CC-BY-4.0]](https://creativecommons.org/licenses/by/4.0/legalcode).
