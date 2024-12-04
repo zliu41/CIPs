@@ -1103,6 +1103,13 @@ which also requires such a traversal. In both cases, the purpose is to
 adjust references to refer to the correct index in the new, merged
 data structure; a single traversal suffices to achieve both ends.
 
+The synactic restriction, requiring a module body to be a tuple of
+exports, is not onerous. While some compilers might wish to represent
+a module as built-in data, or as a function from a tag (as Solidity
+does), this can be achieved by placing the intended module value as
+the first component of a one-tuple. The implementation described here
+optimises away the selection of an element from such a tuple, so the
+restriction introduces no extra overhead in this case.
 
 ### Transaction fees
 
