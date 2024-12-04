@@ -89,7 +89,7 @@ they correspond to both the *on-chain* and the *off-chain* parts of
 Cardano contracts, so one should expect Ethereum contracts to require
 more code for the same task, since in Cardano only the verifiers need
 to run on the chain itself. Nevertheless, it is interesting to ask
-whether, and how the need for modules has been met in the Ethereum
+whether, and how, the need for modules has been met in the Ethereum
 context.
 
 Solidity does provide a notion of 'library', which collects a number
@@ -989,9 +989,9 @@ appear several times in a module hierarchy.
 On the other hand it does restrict the syntactic form of
 scripts. Scripts are restricted to be syntactic lambda expressions,
 binding their script arguments at the top-level. This is not so
-onerous. But modules must also be syntactic values at the top
-level. For example, consider a module represented by a record, whose
-fields represent the exports of the module. Then all of those exports
+onerous. But inside those λs, there must also be a syntactic
+value. For example, consider a module represented by a tuple, whose
+components represent the exports of the module. Then all of those exports
 need to be syntactic values--an exported value could not be computed
 at run-time, for example using an API exported by another
 module. While many module exports are functions, and so naturally
@@ -1289,10 +1289,10 @@ unbox modules, replacing the global tuple of modules with a global
 tuple of module exports. These variations reduce the cost of referring
 to a module export, at the cost of an additional traversal of the
 script code before execution. Extensive benchmarking would be needed
-to decide whether they improve performance overall.
+to decide whether or not they improve performance overall.
 
-Performance can probably be improved further by building in the module
-environment to the CEK machine. However, as this involves a pervasive
+Performance can probably be improved further by building the module
+environment in to the CEK machine. However, as this involves a pervasive
 change to the monad underlying the CEK machine itself, it would
 require recalibration of all the execution unit costs for CEK machine
 steps.
@@ -1326,6 +1326,11 @@ Plinth. In the case of the 'modified CEK machine' alternative for
 a construct* to UPLC to tag values so that their use can be observed;
 this is a *minor* change which is backwards-compatible, but it would
 require a new PlutusCore language version.
+
+Building the module environment in to the CEK machine requires *adding
+a construct* to UPLC to refer to components of the module environment;
+this is a *minor* change which is backwards-compatible, but it would
+also require a new PlutusCore language version.
 
 Because this CIP changes the representation of scripts, it requires a
 new Plutus Core ledger language, and can only be introduced at a hard
