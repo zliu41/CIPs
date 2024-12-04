@@ -419,8 +419,10 @@ scripts representing modules; the latter are subject to an additional
 syntactic restriction that the script body must be a tuple. We change
 the `Script` type accordingly
 ```
-data Script = ValidatorScript CompiledCode [ScriptArg]
-            | ModuleScript    CompiledCode [ScriptArg]
+data Script = CompleteValidatorScript CompiledCode
+            | ValidatorScript         CompiledCode [ScriptArg]
+            | CompleteModuleScript    CompiledCode
+	    | ModuleScript            CompiledCode [ScriptArg]
 ```
 so that the deserializer can easily check the new syntactic
 restriction. `Script`s used as `ScriptArg`s may only be of the
