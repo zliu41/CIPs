@@ -11,7 +11,27 @@ Created: 2024-11-12
 License: CC-BY-4.0
 ---
 ## Abstract
-TODO: write an abstract (~200 words) summarizing the CIP.
+
+Cardano scripts are limited in complexity by the fact that each script
+must be supplied in one transaction, whether the script is supplied in
+the same transaction in which it is used, or pre-loaded onto the chain
+for use as a reference script. This limits script code size, which in
+turn limits the use of libraries in scripts, and ultimately limits the
+sophistication of Cardano apps, compared to competing blockchains. It
+is the aspect of Cardano that script developers complain about most.
+
+This CIP addresses this problem directly, by allowing reference inputs
+to supply 'modules', which can be used from other scripts (including
+other modules), thus allowing the code of a script to be spread across
+many reference inputs. The 'main specification' requires *no* changes to
+UPLC, PTLC, PIR or Plinth; only a 'dependency resolution' step before
+scripts are run. Many variations are described for better performance,
+including some requiring changes to the CEK machine itself, and even
+recalibration of the cost of each kind of CEK step.
+
+Higher performance variations will be more expensive to implement; the
+final choice of variations should take implementation cost into
+account, and (in some cases) may require extensive benchmarking.
 
 ## Motivation: why is this CIP necessary?
 
@@ -460,6 +480,15 @@ suitable `ModuleRef k` expressions as before.
 
 This subvariation does not change the `CompiledCode` stored in
 scripts; it only affects the way that code is prepared for execution.
+
+
+##### Script traversal costs
+
+The last two subvariations above both require a traversal of all the
+script code in a transaction (including the code fetched from
+reference scripts) to adjust module or export references. If they are
+adopted, transaction fees should be increased by an amount linear in
+the total script size to pay for this traversal.
 
 ### Modules in TPLC
 
@@ -1105,7 +1134,7 @@ which also requires such a traversal. In both cases, the purpose is to
 adjust references to refer to the correct index in the new, merged
 data structure; a single traversal suffices to achieve both ends.
 
-The synactic restriction, requiring a module body to be a tuple of
+The syntactic restriction, requiring a module body to be a tuple of
 exports, is not onerous. While some compilers might wish to represent
 a module as built-in data, or as a function from a tag (as Solidity
 does), this can be achieved by placing the intended module value as
@@ -1240,22 +1269,47 @@ The *value scripts* variation restricts scripts to be explicit
 λ-expressions binding the script arguments, with an innermost script
 body which is a syntactic value. Such scripts can be converted to CEK
 values in a single traversal; each script can be converted to a value
-*once per transaction*, rather than at every use. This variation is
-expected to reduce the start-up costs of running each script
-considerably; on the down-side the syntactic restriction would be a
-little annoying, and it requires CEK operations which are not
-currently part of the API, so it requires modifications to a critical
-component of the Plutus implementation.
+*once per transaction*, rather than at every use. *Module-level
+recursion* enables recursive definitions to recurse via the module
+itself, rather than locally, and makes the syntactic-value restriction
+easier to satisfy. This variation is expected to reduce the start-up
+costs of running each script considerably; on the down-side the
+syntactic restriction would be a little annoying, and it requires CEK
+operations which are not currently part of the API, so it requires
+modifications to a critical component of the Plutus implementation.
+
+The *tuples of modules* variation replaces parameters referring to
+individual modules with a single parameter bound to a tuple of
+modules, effectively uncurrying scripts wrt their module
+parameters. At the cost of a traversal of all the script code in a
+transaction to 'relocate' module references, it is possible to replace
+many tuples-of-modules, one per script, by a global tuple of modules
+for the entire transaction; a further improvement would then be to
+unbox modules, replacing the global tuple of modules with a global
+tuple of module exports. These variations reduce the cost of referring
+to a module export, at the cost of an additional traversal of the
+script code before execution. Extensive benchmarking would be needed
+to decide whether they improve performance overall.
+
+Performance can probably be improved further by building in the module
+environment to the CEK machine. However, as this involves a pervasive
+change to the monad underlying the CEK machine itself, it would
+require recalibration of all the execution unit costs for CEK machine
+steps.
 
 The simplest alternative to implement would be the main alternative
-without variations. The most efficient implementation would combine
+without variations. A more efficient implementation would combine
 value scripts with lazy loading, using tagged values in the CEK
 machine to analyse dynamic script dependencies in the balancer, and so
-drop redundant scripts from each transaction. However, this requires
-modifications to the CEK machine and the balancer as well as resolving
-dependencies in scripts.
+drop redundant scripts from each transaction. Further improvements to
+performance may be achievable using a global module environment, and
+unboxed modules; because there are performance costs as well as
+benefits to these approaches, extensive benchmarking would be required
+to make an informed choice.
 
-Our recommendation is: TBD.
+These latter variations all require modifications to the CEK machine
+and to the balancer, as well as resolving dependencies in scripts;
+that is, they are considerable more expensive to implement.
 
 ## Path to Active
 ### Acceptance criteria
