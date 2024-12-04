@@ -412,6 +412,53 @@ computation in the `CekM` monad, it affects the cost of every
 operation in the CEK machine. If this variation is chosen, it will be
 necessary to recalibrate the costs of every UPLC operation.
 
+##### Subvariation: Unboxed modules
+
+In this subvariation, we distinguish between validation scripts and
+scripts representing modules; the latter are subject to an additional
+syntactic restriction that the script body must be a tuple. We change
+the `Script` type accordingly
+```
+data Script = ValidatorScript CompiledCode [ScriptArg]
+            | ModuleScript    CompiledCode [ScriptArg]
+```
+so that the deserializer can easily check the new syntactic
+restriction. `Script`s used as `ScriptArg`s may only be of the
+`ModuleScript` form (this requires a dynamic check). The idea is that
+a module provides a number of exports, which are the components of the
+tuple.
+
+In addition, expressions `M` referring to modules (of the form `proj j
+Mods`) may only appear in contexts of the form `proj i M`, projecting
+out one of the module exports. We call these terms 'export
+references'.
+
+With this restriction, a tuple of modules is now a tuple of tuples,
+and the effect of the subvariation is to flatten that into a tuple of
+exports instead. Every module export is assigned an index in the
+resulting tuple, and the scripts must be preprocessed before execution
+to replace the indexes in every export reference by the corresponding
+index in the tuple--so `proj i (proj j Mods)` becomes `proj k Mods`
+for `k` the index of the `i`th export of the `j`th module. Since the
+placement of modules in a global tuple depends on *all* the modules
+used in a transaction, and since some of the scripts used by a
+transaction are taken from pre-existing reference UTxOs, then this
+preprocessing cannot be done in advance; it must be done during script
+verification of the transaction.
+
+In the case of modules which are omitted from the transaction (see
+'lazy loading'), the export references `proj i (proj j Mods)` should
+be replaced by `builtin unit`. This is either the correct value, or
+will cause a run-time type error (and thus verification failure) if
+the value is used.
+
+This subvariation can be combined with 'module environment built into
+the CEK machine', in which case the export references are replaced by
+suitable `ModuleRef k` expressions as before.
+
+This subvariation does not change the `CompiledCode` stored in
+scripts; it only affects the way that code is prepared for execution.
+
 ### Modules in TPLC
 
 No change is needed in TPLC.
@@ -1035,12 +1082,26 @@ transforms a module reference from a projection from the
 tuple-of-modules variable, to a custom construction `ModuleRef i` that
 directly accesses the module in the `i`th component of the global
 module environment. This reduces the cost from a variable lookup plus
-a projection, to just a projection; this is expected to speed up every
+a projection, to just a projection; this can be expected to speed up every
 reference to an external module.
 
 On the other hand, since it necessitates a change to the `CekM` monad
 underlying the CEK machine implementation, then it also requires
 recalibrating the cost of every UPLC operation.
+
+##### Subvariation: Unboxed modules
+
+This subvariation makes every reference to a module export cheaper, by
+replacing two projections from a tuple by one. It does require
+preprocessing script code before it is run, updating export references
+to refer to the correct element of the large tuple combining several
+modules. This requires a traversal of all the script code in a
+transaction, which must be performed every time script verification is
+run, including on the chain. Because of this, it makes most sense to
+use this subvariation in combination with 'global module environment',
+which also requires such a traversal. In both cases, the purpose is to
+adjust references to refer to the correct index in the new, merged
+data structure; a single traversal suffices to achieve both ends.
 
 
 ### Transaction fees
