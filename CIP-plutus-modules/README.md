@@ -233,7 +233,13 @@ dependencies) to be omitted from the spending transaction.
 
 #### Variation: Value Scripts
 
-In this variation, script code is syntactically restricted to explicit
+The goal of this variation is to eliminate the cost of evaluating
+scripts, by converting them directly to values. Since UPLC runs on the
+CEK machine, this means converting them directly into the `CekValue` type,
+*without* any CEK machine execution. To make this possible, the syntax
+of scripts is restricted so that those parts that would be evaluated
+during an application to the script arguments are already (UPLC)
+values. That is, script code is syntactically restricted to explicit
 λ-expressions with one λ per `ScriptArg`, followed by a syntactic
 value. (Values are constants, variables, built-ins, λ-abstractions,
 delayed terms, and SoP constructors whose fields are also values).
