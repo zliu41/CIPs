@@ -1118,6 +1118,17 @@ fix (λx. fix (λy.e)) ---> fix (λx. e[x/y])
 Both these rules require adjusting deBruin numbers in the UPLC
 implementation. 
 
+The intention here is to implement module-level recursion using a
+cyclic data-structure--the value restriction guarantees that the
+module value `Self` is not needed to compute the top-level value of
+the module, and thus there is no risk of falling into an infinite loop
+at this point. (Of course, a recursive function can loop *when it is
+called*, but constructing the function itself cannot loop because it
+must be a syntactic λ-expression). This is a *more efficient* way to
+implement recursion than the fixpoint combinators currently used in
+UPLC, and so will probably become the preferred way to implement
+recursion.
+
 #### Variation: Tuples of modules
 
 This variation changes the way modules are referenced in scripts: in
