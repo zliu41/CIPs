@@ -456,16 +456,14 @@ the script values can refer to the *same* tuple of modules.
 
 ###### Subsubvariation: Module environment built into the CEK machine
 
-In this subsubvariation, the (single) tuple of modules is built into
-the `CekM` monad, instead of being passed as a parameter in
-UPLC. Consequently it cannot be accessed as a UPLC variable; new UPLC
-constructs are needed instead. Since references to the global tuple of
-modules always refer to a *particular* module, then it suffices to add
-a construct of the form
+In this subsubvariation, the (single) tuple of modules is passed (as a
+new implicit parameter) directly to the CEK machine, instead of being
+passed as a parameter in UPLC. Consequently it cannot be accessed as a
+UPLC variable; new UPLC constructs are needed instead. Since
+references to the global tuple of modules always refer to a
+*particular* module, then it suffices to add a construct of the form
 ```
-data Term name uni fun ann =
-    ..
-  | ModuleRef Int
+data Term name uni fun ann = ..  | ModuleRef Int
 ```
 such that `ModuleRef i` evaluates to the `i`th component of the global
 module tuple.
@@ -476,10 +474,12 @@ before execution these indices must be replaced by the corresponding
 indices in the global module environment, necessitating a traversal of
 the script code to prepare it for execution.
 
-Because this variation adds an additional parameter to every
-computation in the `CekM` monad, it affects the cost of every
-operation in the CEK machine. If this variation is chosen, it will be
-necessary to recalibrate the costs of every UPLC operation.
+Because this variation adds an additional parameter to the CEK
+mcahine, and to each tail-called function implementing its steps, then
+it might affect the cost of every operation in the CEK machine
+(although this effect is small and may be zero). If this variation is
+chosen, it might be advisable to recalibrate the costs of UPLC
+operations.
 
 ##### Subvariation: Unboxed modules
 
@@ -1176,9 +1176,10 @@ module environment. This reduces the cost from a variable lookup plus
 a projection, to just a projection; this can be expected to speed up every
 reference to an external module.
 
-On the other hand, since it necessitates a change to the `CekM` monad
-underlying the CEK machine implementation, then it also requires
-recalibrating the cost of every UPLC operation.
+On the other hand, since it adds a parameter to the CEK machine
+implementation, then it might increase the cost of all CEK machine
+operations--and so recalibrating the cost of UPLC operations might be
+advisable.
 
 ##### Subvariation: Unboxed modules
 
@@ -1228,6 +1229,11 @@ the future. To be successful, the DDoS defence just needs fees to
 become *sufficiently* expensive per byte as the total size of
 reference scripts grows; they do not need to grow without bound. So
 there is scope for rethinking here.
+
+Some of the variations in this CIP require a traversal of all the
+script code in a transaction to adjust module references before
+execution. This should be reflected by a component in the transaction
+fee linear in the total size of scripts.
 
 ### Verification
 
