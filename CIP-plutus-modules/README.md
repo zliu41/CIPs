@@ -365,6 +365,48 @@ evaluated, the value of the script is just added to the environment in
 the same way as the script arguments. The script can then refer to
 its own value using `Self`.
 
+#### A Note on Tuples
+
+The following variations make heavy use of tuples which in practice
+could grow quite large--tuples of modules, and modules as tuples of
+exports. These variations only make sense if projection of a component
+from a tuple is *efficient*, and in particular, constant time,
+independent of the tuple size. At present, tuples are represented
+using the SoP extension (CIP-85) as `constr 0 x1...xn`, but the only
+way to select the `i`th component is using
+```
+  case t of (x1...xi...xn) -> xi
+```
+which takes time linear in the size of the tuple to execute, because
+all `n` components need to be extracted from the tuple and passed to
+the case branch (represented by a function).
+
+We assume below that there is an expression `proj i t` in UPLC, where
+`i` is a constant, which efficiently extracts the `i`th component from
+tuple `t`. There are several ways this could be implemented:
+
+* `proj i t` could be added as a new construct to UPLC, together with
+  extensions to the CEK machine to evaluate it.
+* `proj` could be added as a new built-in to UPLC--probably a smaller
+  change to the implementation, but less efficient (because `i` would
+  be an argument needing evaluation, rather than a constant integer in
+  the AST), and problematic to add to TPLC (because typing it requires
+  dependent types).
+* represent 'tuples' in this context as functions from indices to
+  components, so `(x,y,z)` would be represented as
+  ```
+  λi. case i of 0 -> x
+      	     	1 -> y
+		2 -> z
+  ```
+  This requires support in UPLC for pattern-matching on integers in
+  constant time, which is not implemented right now, but is on the
+  horizon.
+
+In the sections below we just use tuples and the notation `proj i t`,
+on the assumption that an implementation is chosen and deployed.
+  
+
 #### Variation: Tuples of modules
 
 In the main specification in this CIP, script code is a curried
