@@ -375,7 +375,7 @@ independent of the tuple size. At present, tuples are represented
 using the SoP extension (CIP-85) as `constr 0 x1...xn`, but the only
 way to select the `i`th component is using
 ```
-  case t of (x1...xi...xn) -> xi
+  case t of (constr 0 x1...xi...xn) -> xi
 ```
 which takes time linear in the size of the tuple to execute, because
 all `n` components need to be extracted from the tuple and passed to
@@ -401,7 +401,8 @@ tuple `t`. There are several ways this could be implemented:
   ```
   This requires support in UPLC for pattern-matching on integers in
   constant time, which is not implemented right now, but is on the
-  horizon.
+  horizon. It would also need dependent types to be typed, and so
+  cannot be added to Plinth, PIR or PTLC.
 
 In the sections below we just use tuples and the notation `proj i t`,
 on the assumption that an implementation is chosen and deployed.
