@@ -166,7 +166,7 @@ newtype CompleteScript = CompleteScript ShortByteString
 
 newtype Arg = ScriptArg ScriptHash
 
-data Script = 
+data Script =
   ScriptWithArgs { head :: CompleteScript, args :: [Arg] }
 
 -- hash of a Script, not a CompleteScript
@@ -175,17 +175,17 @@ type ScriptHash = ByteString
 
 We need to resolve the arguments of a script before running it:
 ```
-resolveScriptDependencies 
+resolveScriptDependencies
   :: Map ScriptHash Script
-  -> Script 
+  -> Script
   -> Maybe CompleteScript
-resolveScriptDependencies preimages = go 
-  where 
+resolveScriptDependencies preimages = go
+  where
     go (ScriptWithArgs head args) = do
       argScripts <- traverse lookupArg args
       pure $ applyScript head argScripts
       where
-        lookupArg :: Arg -> Maybe CompleteScript 
+        lookupArg :: Arg -> Maybe CompleteScript
         lookupArg (ScriptArg hash) = do
           script <- lookup hash preimages
           go script
@@ -207,16 +207,16 @@ With this design, if any script hash is missing from the `preimages`,
 then the entire resolution fails. As an alternative, we might replace
 missing subterms by a dummy value, such as `builtin unit`, thus:
 ```
-resolveScriptDependencies 
+resolveScriptDependencies
   :: Map ScriptHash Script
-  -> Script 
+  -> Script
   -> CompleteScript
-resolveScriptDependencies preimages = go 
-  where 
+resolveScriptDependencies preimages = go
+  where
     go (ScriptWithArgs head args) =
       applyScript head (map lookupArg args)
       where
-        lookupArg :: Arg -> CompleteScript 
+        lookupArg :: Arg -> CompleteScript
         lookupArg (ScriptArg hash) = do
           case lookup hash preimages of
 	    Nothing     -> builtin unit
@@ -268,7 +268,7 @@ scriptCekValue scriptValues (ScriptWithArgs head args) =
 			    Nothing -> vbuiltin unit
 	   		 | ScriptArg h <- args])
 	   (deserialize (getPlc head))
-           
+
 ```
 That is, a script is turned into a value by creating a CEK machine
 environment from the values of the `ScriptArg`s, and converting the
@@ -406,7 +406,7 @@ tuple `t`. There are several ways this could be implemented:
 
 In the sections below we just use tuples and the notation `proj i t`,
 on the assumption that an implementation is chosen and deployed.
-  
+
 
 #### Variation: Tuples of modules
 
@@ -426,7 +426,7 @@ to only one module at a time.
 To avoid additional overheads for scripts without arguments, we
 redefine the `Script` type as follows:
 ```
-data Script = 
+data Script =
     CompleteScript CompleteScript
   | ScriptWithArgs { head :: CompleteScript, args :: [Arg] }
 ```
@@ -572,7 +572,7 @@ Here the `modArgs` correspond to the `ScriptArg`s in the UPLC case,
 and the `modHash` is the hash of the underlying `Script`.  The type
 parameter of `Module a` is a phantom parameter, just like the type
 parameter of `CompiledCode a`, which tells us the type of value which
-the application of the `modCode` to the `modArgs` represents. 
+the application of the `modCode` to the `modArgs` represents.
 
 We can convert any `ScriptHash` into a module:
 ```
@@ -604,6 +604,34 @@ these.
 
 It is `Module` values that would then be serialised to produce scripts
 for inclusion in transactions.
+
+### Plutus Ledger Language Versions
+
+Plutus ledger language version is what "Plutus V1", "Plutus V2", "Plutus V3" refer to.
+These are not distinct programming languages; the primary difference lies in the arguments the script receives from the ledger, and the value it returns[^1].
+Plutus V1, V2 and V3 can therefore be understood as type signatures, in the sense that they each represent a subset of UPLC programs with specific types. Any UPLC program that matches the expected argument and return types can be considered and used as a Plutus V1, V2 or V3 script.
+A new ledger era is the primary reason for introducing a new ledger language version, though technically there can be cases where a new ledger language version is necessary without a new ledger era.
+
+Currently each script on-chain is tagged with a specific ledger language version - V1, V2, V3 or native script - and this version tag is a component of the script hash.
+A logical approach, therefore, is to continue doing so for module scripts, and require that a validator script and all modules it references must use the same ledger language version; failure to do so leads to a phase-1 error.
+
+A different approach is to distinguish between validator scripts and module scripts by applying version tags only to validator scripts.
+Module scripts are untagged and can be linked to any validator script.
+This makes module scripts more reusable, which is advantageous because in most cases, a UPLC program has the same semantics regardless of the ledger language version.
+
+This is, however, not always the case because a few builtin functions have multiple semantic variants, and the variant used may differ depending on the ledger language version.
+Nonetheless, if a module script depends on a particular ledger language version to work correctly, this requirement can be communicated through alternative means, e.g., as a piece of metadata in a module script registry.
+
+Another drawback of untagged modules is that untagged modules will be a new concept that doesn't currently exist, and as a result, modules will not be usable in Plutus V1 through V3, and can only be used from Plutus V4 onwards.
+
+### Plutus Core Versions
+
+Plutus Core version is the usual sense of version pertaining to programming languages - in this instance the Plutus Core language.
+So far there have been two Plutus Core versions: 1.0.0 and 1.1.0. 1.1.0 adds sums-of-products to the language by introducing two new AST node types: Case and Constr.
+See [CIP-85](https://cips.cardano.org/cip/CIP-0085) for more details.
+Each UPLC program is attached with a Plutus Core version (where as for ledger language versions, only _scripts_ that exist on-chain, i.e., in some UTXOs, are attached with ledger language versions).
+
+UPLC programs with different Plutus Core versions are incompatible and cannot be combined, and therefore, a validator script and all modules it references must share the same Plutus Core version; otherwise it is a phase-1 error.
 
 ## Rationale: how does this CIP achieve its goals?
 
@@ -1104,19 +1132,19 @@ script values to be referred to via the `Self` variable instead of
 using a fixpoint combinator implemented in UPLC. To take advantage of
 this feature, the compiler will need to float occurrences of `fix`
 upwards, to the top-level of a module. This can be done using suitable
-analogues of the rules 
+analogues of the rules
 ```
 (..,fix (λx.e),...) ---> fix (λx.(..,e[proj i x/x],..))
 ```
 where `i` is the index in the tuple at which `fix (λx.e)` appears,
 `proj i x` selects the `i`th component from `x`, and `x` does not
 occur free elsewhere in the tuple; a corresponding rule for
-constructor applications; and 
+constructor applications; and
 ```
 fix (λx. fix (λy.e)) ---> fix (λx. e[x/y])
 ```
 Both these rules require adjusting deBruin numbers in the UPLC
-implementation. 
+implementation.
 
 The intention here is to implement module-level recursion using a
 cyclic data-structure--the value restriction guarantees that the
@@ -1378,11 +1406,77 @@ and to the balancer, as well as resolving dependencies in scripts;
 that is, they are considerable more expensive to implement.
 
 ## Path to Active
+
 ### Acceptance criteria
-TODO: The criteria whereby the proposal becomes 'Active'.
+
+- [ ] decide on which of the approach outlined is chosen
+- [ ] `plutus` changes
+- [ ] `cardano-ledger` changes
+- [ ] `cardano-api` changes
+- [ ] benchmarking and testing
+- [ ] integrate the feature into `cardano-node`
+- [ ] end-to-end testing
+- [ ] release at the hard fork introducing the Dijkstra era
+
 ### Implementation Plan
-TODO: A plan to meet the criteria or N/A
+
+Here we use the term "script" to refer to either a validator script (which needs to be run to validate a transaction) and a module script (which serves as a dependency for other scripts).
+Both validators and modules can reference other modules.
+
+The feature proposed in this CIP can only be released in a new ledger era.
+As such, it is anticipated that it will be released alongside the Dijkstra era.
+
+Whether this feature can be used in existing Plutus ledger language versions (V1 through V3) depends on which of the options outlined in subsection _Plutus Ledger Language Versions_ (i.e., tagged or untagged modules) is chosen.
+If tagged modules are adopted, the feature will be available across all Plutus language versions (V1 through V4) starting at the hard fork that introduces the Dijkstra era.
+If untagged modules are adopted, then it will only be usable in Plutus V4, as explained in the subsection.
+
+The bulk of the implementation effort lies on the Plutus side, including updates to `plutus-ledger-api`, updates to the CEK machine, costing and benchmarking, among others.
+The specifics will depend on which of the various alternatives outlined in this CIP is selected.
+The Plutus team aims to complete the implementation of the selected approach according to its specification, in time for the Dijkstra era.
+
+On the ledger and cardano-api side, the effort required to support this feature is not as substantial as it may appear to be.
+This is because the ledger already supports reference inputs and reference scripts since the Babbage era, and the existing mechanism can largely be reused to accommodate module scripts.
+The processes of storing a module script in a UTXO and using it in a transaction are similar storing and using a reference script.
+
+The main difference between reference scripts and module scripts is that a module script is, like an object file, not directly runnable but must be linked with a validator to form a runnable script.
+To support this, the ledger and cardano-api will need implement some changes.
+The specifics will slightly vary depending on which of the alternative approaches is chosen, but it will generally involve the following.
+
+Currently, deserialising a script returns a `ScriptForEvaluation`, which contains a deserialised script, along with the original serialised script. The ledger has a `PlutusRunnable` newtype that wraps `ScriptForEvaluation`.
+With the introduction of modules, deserialising a script no longer produces a runnable script unless it is a self-contained validator that doesn't use modules.
+Otherwise, the module hashes it references must be resolved and the modules linked before the validator can be executed.
+
+To do so, the `plutus-ledger-api` package can implement one of two options, depending on which is more suitable for the ledger:
+- Script deserialisation will be modified to return a new data type, `ScriptForLinking`.
+  It is similar to `ScriptForEvaluation` except that the deserialized script is not necessarily a self-contained script and may be accompanied by a list of module hashes it needs.
+
+  Then, a function `linkValidator :: Map ScriptHash ScriptForLinking -> ScriptHash -> LinkedScript` is provided that performs linking for a particular validator identified by `ScriptHash`, where `LinkedScript ~ UPLC.Program DeBruijn DefaultUni DefaultFun ()` is a fully linked script.
+- Alternatively, the following function can be provided: `linkScripts :: Map ScriptHash SerialisedScript -> Map ScriptHash LinkedScript`, which performs deserialisation and linking for all scripts in one go.
+
+In either case, the ledger should ensure that each script (including validator script and module script) is deserialised and processed no more than once.
+
+Moreover, for the transaction builder to decide which modules a validator refers to are used at runtime, `plutus-ledger-api` will also expose the following function:
+
+```haskell
+getUsedModules ::
+  MajorProtocolVersion ->
+  EvaluationContext ->
+  -- | All scripts provided in a transaction
+  Map ScriptHash SerialisedScript ->
+  -- | Hash of the validator
+  ScriptHash ->
+  -- | Script arguments
+  [Data] ->
+  -- | Hashes of used module scripts
+  Set ScriptHash
+```
+
+The value type of the `Map` could instead be `ScriptForLinking` (i.e., deserialised script) rather than `SerialisedScript`.
+
+This function is to be called by the code building transactions (e.g., `Cardano.Api.Fees.makeTransactionBodyAutoBalance`) to determine which modules are necessary to include in a transaction.
+
 ## Categories
+
 This is a Plutus CIP.
 
 As a Plutus CIP, it leaves UPLC, TPLC, PIR and Plinth *unchanged*
@@ -1415,4 +1509,6 @@ Phil Wadler.
 ## Copyright
 This CIP is licensed under [CC-BY-4.0]](https://creativecommons.org/licenses/by/4.0/legalcode).
 
+---
 
+[^1]: At present, a newer ledger language version may have access to more builtin functions and more Plutus Core versions than an older ledger language version, but this difference is going away.
